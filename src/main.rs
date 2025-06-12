@@ -1,10 +1,13 @@
 use eframe::egui;
+use egui::{response, vec2, Align2, Id, LayerId, Sense, Vec2};
 
-use crate::field::{Field, GridType};
+use crate::{component_lib::EXAMPLE_UNIT, field::{Field, GridType}, preview_window::PreviewWindow, primitives::{grid_pos, Component, ConnectionAlign, Port, Unit}};
 
 
 mod primitives;
 mod field;
+mod component_lib;
+mod preview_window;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main()  {
@@ -68,16 +71,22 @@ fn main() {
 struct EditorApp {
     field: Field,
     grid_sel: bool,
+    preview_window: PreviewWindow,
 }
 
 impl EditorApp {
     fn new() -> Self {
-        EditorApp {field: Field::new(), grid_sel:true}
+        EditorApp {
+            field: Field::new(), grid_sel:true,
+            preview_window: PreviewWindow::new()
+        }
     }
 }
 
 impl eframe::App for EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let foreground: LayerId = LayerId::new(egui::Order::Foreground, Id::new("foreground"));
+        self.field.set_external_drag_resp(self.preview_window.show(ctx, foreground, self.field.state.scale));
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.toggle_value(&mut self.grid_sel, "Сетка");
             if self.grid_sel {
@@ -87,5 +96,6 @@ impl eframe::App for EditorApp {
             }
             self.field.show(ui);
         });
+
     }
 }

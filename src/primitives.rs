@@ -1,9 +1,10 @@
-use std::{collections::HashMap, f32::consts::FRAC_PI_2, i32, mem::offset_of, ops::Add, usize};
+use std::{collections::HashMap, f32::consts::FRAC_PI_2, i32, ops::Add, usize};
 
-use egui::{emath::Float, epaint::TextShape, scroll_area::State, vec2, Color32, Galley, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
+use eframe::egui_glow::painter;
+use egui::{emath::align, epaint::{TextShape, Vertex}, scroll_area::State, vec2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2};
 use rstar::{RTree, RTreeObject, AABB};
 
-use crate::field::{Field, FieldState};  // AABB = Axis-Aligned Bounding Box (прямоугольник)
+use crate::field::{self, Field, FieldState};  // AABB = Axis-Aligned Bounding Box (прямоугольник)
 type Point = [i32; 2];  // Точка (x, y)
 
 pub type Id = usize;
@@ -83,6 +84,7 @@ pub fn grid_rect(id:usize, min: GridPos, max: GridPos) -> GridRect {
     };
 }
 
+#[derive(Clone)]
 pub struct Unit {
     pub id: Id, // TODO: remove it, return new id on adding to BD??
     pub name: String,
@@ -131,26 +133,14 @@ impl Net {
         }
     }
 
-    pub fn display(&self, bd: &GridBD, state: &FieldState, painter: &Painter) {
-        let grid_center_vec = vec2(0.5 * state.grid_size, 0.5 * state.grid_size);
-        let points: Vec<Pos2> = self.points.iter().map(|p| {state.grid_to_screen(&p) + grid_center_vec}).collect();
-        let len = points.len();
-        if len > 1 {
-            bd.get_component(&self.start_point.component_id).inspect(|start_comp| {
-                start_comp.get_connection(self.start_point.connection_id).inspect(|start_con|{
-                    bd.get_component(&self.end_point.component_id).inspect(|end_comp| {
-                        start_comp.get_connection(self.end_point.connection_id).inspect(|end_con|{
-                            let start_point = start_con.center(&start_comp.get_position(), state);
-                            let end_point = end_con.center(&end_comp.get_position(), state);
-                            let mut extended = vec![start_point];
-                            extended.extend(points);
-                            extended.push(end_point);
-                            painter.with_clip_rect(state.rect).line(extended, Stroke::new(state.grid_size * 0.1, Color32::DARK_GRAY));
-                        });
-                    });
-                });
-            });
+    fn get_segments(&self) -> Vec<NetSegment> { // TODO: return iterator?
+        let mut result = vec![];
+        for i in 0..self.points.len()-1 {
+            result.push(NetSegment::new(i, self.id, self.points[i], self.points[i+1],
+            (i == 0).then_some(self.start_point),
+            (i == self.points.len()-2).then_some(self.end_point)));
         }
+        result
     }
 }
 
@@ -169,7 +159,8 @@ pub struct GridBD {
 
     // TODO: use it
     connections: HashMap<GridPos, ComponentConnection>,
-    pub nets: HashMap<usize, Net>
+    pub nets: HashMap<usize, Net>,
+    net_tree : RTree<NetSegment>
 }
 
 impl GridBD {
@@ -178,7 +169,8 @@ impl GridBD {
             components: HashMap::new(),
             tree: RTree::new(),
             connections: HashMap::new(),
-            nets: HashMap::new()
+            nets: HashMap::new(),
+            net_tree: RTree::new()
         }
     }
 
@@ -187,6 +179,12 @@ impl GridBD {
         component.get_connection_cells().iter().for_each(|c| {self.connections.insert(c.cell, c.to_comp_connection(component.get_id()));});
         self.components.insert(rect.id, component);
         self.tree.insert(rect);
+    }
+
+    pub fn add_component_with_unknown_id(&mut self, component: Component) {
+        let mut component = component;
+        component.set_id(self.components.len());
+        self.add_component(component);
     }
 
     pub fn remove_component(&mut self, id:usize) {
@@ -201,7 +199,6 @@ impl GridBD {
             });
             self.tree.remove(&component.get_grid_rect());
             self.components.remove(&id);
-
         }
     }
 
@@ -235,10 +232,13 @@ impl GridBD {
     }
 
     pub fn find_net_path(&self, pos1:GridPos, pos2:GridPos) -> Vec<GridPos> {
-        return vec![pos1, grid_pos((pos1.x + pos2.x)/2, pos1.y), grid_pos((pos1.x + pos2.x)/2, pos2.y), pos2]
+        return vec![grid_pos((pos1.x + pos2.x)/2, pos1.y), grid_pos((pos1.x + pos2.x)/2, pos2.y)]
     }
 
     pub fn add_net(&mut self, net: Net) {
+        for segment in net.get_segments() {
+            self.net_tree.insert(segment);
+        }
         self.nets.insert(net.id, net);
     }
 
@@ -246,12 +246,25 @@ impl GridBD {
         // fixme
         return self.nets.values().collect();
     }
+
+    pub fn get_component_and_connection(&self, cp: &GridBDConnectionPoint) -> Option<(&Component, Connection)> {
+        if let Some(comp) = self.components.get(&cp.component_id) {
+            if let Some(con) = comp.get_connection(cp.connection_id) {
+                return Some((comp, con));
+            }
+        }
+        None
+    }
+
+    pub fn get_visible_net_segments(&self, rect: &GridRect) -> Vec<&NetSegment> {
+        self.net_tree.locate_in_envelope_intersecting(&rect.envelope()).collect()
+    }
 }
 
 
+#[derive(Clone)]
 pub enum Component {
-    Unit(Unit),
-    Net(Net)
+    Unit(Unit)
 }
 
 struct ComponentConnection {
@@ -277,37 +290,32 @@ impl Component {
     pub fn get_position(&self) -> GridPos {
         match self {
             Component::Unit(u) => u.pos,
-            _ => panic!("TODO"),
         }
     }
 
     pub fn get_id(&self) -> usize {
         match self {
             Component::Unit(u) => u.id,
-            _ => usize::MAX,
         }
     }
 
     pub fn  get_grid_rect(&self) -> GridRect {
         match self {
-            Component::Unit(u) => {u.get_grid_rect()}
-            _ => {GridRect{id: usize::MAX, min: grid_pos(0, 0), max: grid_pos(0, 0)}}
+            Component::Unit(u) => u.get_grid_rect(),
         }
     }
 
     pub fn display(&self, state: &FieldState, painter: &Painter) {
         match self {
-            Component::Unit(u) => {u.display(state, painter)}
-            _ => {}
+            Component::Unit(u) => u.display(state, painter),
         }
     }
 
-    pub fn get_connection_cells(&self) -> Vec<ConnectionCell> {
+    fn get_connection_cells(&self) -> Vec<ConnectionCell> {
         match self {
             Component::Unit(unit) => unit.ports.iter().enumerate().map(|(i, p)| {
                 ConnectionCell{cell: grid_pos(unit.pos.x + p.inner_cell.x, unit.pos.y + p.inner_cell.y), inner_id:i}
             }).collect(),
-            _ => vec![]
         }
     }
 
@@ -315,6 +323,45 @@ impl Component {
         match self {
             Component::Unit(unit) => if let Some(p) = unit.ports.get(inner_id) {Some(Connection::Port(p))} else {None},
             _ => None
+        }
+    }
+
+    pub fn draw_preview(&self, rect: &Rect, painter: &Painter) {
+        let grid_rect = self.get_grid_rect();
+        let w = grid_rect.max.x - grid_rect.min.x + 2;
+        let h = grid_rect.max.y - grid_rect.min.y + 2;
+        let x_grid_size = rect.width() / w as f32;
+        let y_grid_size = rect.height() / h as f32;
+        let grid_size = x_grid_size.min(y_grid_size);
+        let scale = grid_size / Field::BASE_GRID_SIZE;
+        let state = FieldState {
+            scale: grid_size / Field::BASE_GRID_SIZE,
+            offset: Vec2::default(),
+            grid_size: grid_size,
+            rect: rect.clone(), // ?? TODO make it as Option
+            label_font: FontId::monospace((Field::BASE_GRID_SIZE * scale * 0.5).min(Field::MAX_FONT_SIZE)),
+            label_visible: true,
+            cursor_pos: None,
+        };
+        self.display(&state, painter);
+    }
+
+    pub fn get_dimension(&self) -> (i32, i32) {
+        let grid_rect = self.get_grid_rect();
+        let w = grid_rect.max.x - grid_rect.min.x;
+        let h = grid_rect.max.y - grid_rect.min.y;
+        return (w, h);
+    }
+
+    pub fn set_id(&mut self, id:Id) {
+        match self {
+            Component::Unit(unit) => unit.id = id
+        }
+    }
+
+    pub fn set_pos(&mut self, pos: GridPos) {
+        match self {
+            Component::Unit(unit) => unit.pos = pos
         }
     }
 }
@@ -452,9 +499,129 @@ impl<'a> Connection <'a> {
 }
 
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct GridBDConnectionPoint {
     pub component_id:Id,
     pub connection_id:Id
 }
 
+pub struct NetSegment {
+    inner_id: Id,  // ID of segment in net
+    net_id: Id,    // ID of net
+    pos1: GridPos,
+    pos2: GridPos,
+    con1: Option<GridBDConnectionPoint>,  // if segment
+    con2: Option<GridBDConnectionPoint>,  // Second position
+}
+
+impl NetSegment {
+    pub fn new(inner_id: Id, net_id: Id, pos1: GridPos, pos2: GridPos,
+               con1: Option<GridBDConnectionPoint>, con2: Option<GridBDConnectionPoint>) -> Self {
+        Self {
+            inner_id,
+            net_id,
+            pos1,
+            pos2,
+            con1,
+            con2
+        }
+    }
+
+    fn is_horizontal(&self) -> bool {
+        self.pos1.y == self.pos2.y
+    }
+
+    pub fn get_mesh(&self, bd: &GridBD, state: &FieldState) -> Mesh {
+        let w = (state.grid_size * 0.1).max(0.5);
+        let half_w = w * 0.5;
+        let ofs = Vec2::new(0.5 * state.grid_size, 0.5 * state.grid_size);
+
+        let mut p1 = state.grid_to_screen(&self.pos1) + ofs;
+        let mut p2 = state.grid_to_screen(&self.pos2) + ofs;
+
+        if self.is_horizontal() {
+            let h_ofs = Vec2::new(w * 0.5, 0.0);
+            if self.pos1.x < self.pos2.x {
+                if self.con1.is_none() {
+                    p1 -= h_ofs;
+                }
+                if self.con2.is_none() {
+                    p2 += h_ofs;
+                }
+            } else {
+                if self.con1.is_none() {
+                    p1 += h_ofs;
+                }
+                if self.con2.is_none() {
+                    p2 -= h_ofs;
+                }
+            }
+        }
+
+        let mut pts = vec![p1, p2];
+
+        if let Some(cp) = &self.con1 {
+            if let Some((comp, con)) = bd.get_component_and_connection(cp) {
+                pts.insert(0, con.center(&comp.get_position(), state));
+            }
+        }
+
+        if let Some(cp) = &self.con2 {
+            if let Some((comp, con)) = bd.get_component_and_connection(cp) {
+                pts.push(con.center(&comp.get_position(), state));
+            }
+        }
+
+        let color = Color32::DARK_GRAY;
+        let mut mesh = Mesh::default();
+
+        for i in 0..pts.len().saturating_sub(1) {
+            let start = pts[i];
+            let end = pts[i + 1];
+
+            let delta = end - start;
+            let length = delta.length();
+            if length == 0.0 {
+                continue;
+            }
+            let dir = delta / length;
+            let perp = Vec2::new(-dir.y, dir.x); // перпендикуляр
+            let half = perp * half_w;
+
+            let p1 = start + half;
+            let p2 = start - half;
+            let p3 = end + half;
+            let p4 = end - half;
+
+            let idx_base = mesh.vertices.len() as u32;
+
+            // Добавляем `uv: Pos2::ZERO`, даже если текстуры не используются
+            mesh.vertices.push(Vertex { pos: p1, uv: Pos2::ZERO, color });
+            mesh.vertices.push(Vertex { pos: p2, uv: Pos2::ZERO, color });
+            mesh.vertices.push(Vertex { pos: p3, uv: Pos2::ZERO, color });
+            mesh.vertices.push(Vertex { pos: p4, uv: Pos2::ZERO, color });
+
+            // два треугольника на сегмент
+            mesh.indices.extend_from_slice(&[
+                idx_base, idx_base + 1, idx_base + 2,
+                idx_base + 2, idx_base + 1, idx_base + 3,
+            ]);
+        }
+
+        mesh
+    }
+}
+
+impl RTreeObject for NetSegment {
+    type Envelope = AABB<Point>;
+
+    fn envelope(&self) -> Self::Envelope {
+        AABB::from_corners(self.pos1.to_point(), self.pos2.to_point())
+    }
+}
+
+impl PartialEq for NetSegment {
+    fn eq(&self, other: &Self) -> bool {
+        other.inner_id == self.inner_id && self.net_id == other.net_id
+    }
+}
