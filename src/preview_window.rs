@@ -52,17 +52,21 @@ impl PreviewWindow {
                     let rect_size = vec2((w + 2) as f32 * field_grid_size, (h + 2) as f32 * field_grid_size);
                     let rect2 = Rect::from_center_size(hover_pos, rect_size);
                     EXAMPLE_UNIT.draw_preview(&rect2, &painter);
-                    let ofs_vec = vec2(field_grid_size, field_grid_size);
-                    drag_response = DragComponentResponse::Dragged { pos: rect2.min + ofs_vec, dim: (w, h) };
+                    if !rect.contains(hover_pos) {
+                        let ofs_vec = vec2(field_grid_size, field_grid_size);
+                        drag_response = DragComponentResponse::Dragged { pos: rect2.min + ofs_vec, dim: (w, h) };
+                    }
                 }
             }
             if response.drag_stopped() {
                 let (w, h) = comp.get_dimension();
                 let rect_size = vec2((w + 2) as f32 * field_grid_size, (h + 2) as f32 * field_grid_size);
                 let pos = response.interact_pointer_pos().unwrap();
-                let rect2 = Rect::from_center_size(pos, rect_size);
-                let ofs_vec = vec2(field_grid_size, field_grid_size);
-                drag_response =  DragComponentResponse::Released { pos: rect2.min + ofs_vec, component: (*comp).clone() };
+                if !rect.contains(pos) && ui.ctx().screen_rect().contains(pos) {
+                    let rect2 = Rect::from_center_size(pos, rect_size);
+                    let ofs_vec = vec2(field_grid_size, field_grid_size);
+                    drag_response =  DragComponentResponse::Released { pos: rect2.min + ofs_vec, component: (*comp).clone() };
+                }
             }
         });
         return drag_response;

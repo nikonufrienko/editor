@@ -41,6 +41,20 @@ pub fn filled_cells(state: &FieldState, grid_pos: &GridPos, width: i32, height: 
     Shape::rect_filled(rect, 0.0, color)
 }
 
+pub fn blocked_cell(state: &FieldState, pos: &GridPos) -> Vec<Shape> {
+    let mut result = vec![];
+    let base_p = state.grid_to_screen(&pos);
+    let p1 = base_p + vec2(state.grid_size * 0.25, state.grid_size * 0.25);
+    let p2 = base_p + vec2(state.grid_size * 0.75, state.grid_size * 0.75);
+    let p3 = base_p + vec2(state.grid_size * 0.25, state.grid_size * 0.75);
+    let p4 = base_p + vec2(state.grid_size * 0.75, state.grid_size * 0.25);
+    result.push(Shape::line_segment([p1, p2], Stroke::new(1.0, Color32::RED)));
+    result.push(Shape::line_segment([p3, p4], Stroke::new(1.0, Color32::RED)));
+    result.push(filled_cells(&state,
+        &pos, 1, 1, Color32::from_rgba_unmultiplied(255, 0, 0, 25)));
+    result
+}
+
 
 pub struct Field {
     pub state: FieldState,
@@ -65,13 +79,11 @@ impl Field {
         let scale = (Self::MAX_SCALE/10.0).max(Self::MIN_SCALE);
         let mut db = GridBD::new();
         let mut cnt = 0;
-        /*
+
         for i in 0..100 {
             for j in 0..100 {
-
-                cnt += 1;
                 let unit = Unit {
-                    id: cnt,
+                    id: 0,
                     name: "АМОГУС".to_owned(),
                     pos: grid_pos(10 * i, 10 * j),
                     width: 5,
@@ -114,9 +126,9 @@ impl Field {
                             name: "info".to_owned(),
                         }
                 ]};
-                db.add_component(Component::Unit(unit));
+                db.add_component_with_unknown_id(Component::Unit(unit));
             }
-        }*/
+        }
 
         Self {
             state : FieldState {
@@ -140,7 +152,7 @@ impl Field {
         let delta_x = if self.state.offset.x >= 0.0 {self.state.offset.x % self.state.grid_size} else {self.state.grid_size - (self.state.offset.x.abs()% self.state.grid_size)} ;
         let delta_y = if self.state.offset.y >= 0.0 {self.state.offset.y % self.state.grid_size} else {self.state.grid_size - (self.state.offset.y.abs()% self.state.grid_size)} ;
 
-        let stroke = Stroke::new(0.1, Color32::WHITE);
+        let stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(255,255,255,10));
         let mut shapes = vec![];
 
         match self.grid_type {
@@ -166,7 +178,7 @@ impl Field {
                         for j in 0..horizontal_lines {
                             let x = self.state.rect.left() + delta_x + i as f32 * self.state.grid_size;
                             let y = self.state.rect.top() + delta_y + j as f32 * self.state.grid_size;
-                            shapes.push(Shape::circle_filled(pos2(x, y), 0.5, Color32::from_rgba_unmultiplied(255, 255, 255, 50)));
+                            shapes.push(Shape::circle_filled(pos2(x, y), 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 50)));
                         }
                     }
                 }
@@ -215,10 +227,33 @@ impl Field {
     fn handle_drag_resp(&mut self, painter: &Painter) {
         match std::mem::take(&mut self.external_drag_resp) {
             DragComponentResponse::Dragged{dim, pos}  => {
-                painter.add(filled_cells(&self.state, &self.state.screen_to_grid(pos), dim.0, dim.1, Color32::from_rgba_unmultiplied(255, 255, 255, 25)));
+
+                let p0 = self.state.screen_to_grid(pos);
+                let mut result = vec![];
+                for x in 0..dim.0 {
+                    for y in 0..dim.1 {
+                        let cell = p0 + grid_pos(x, y);
+                        if self.grid_db.is_free_cell(cell)  {
+                            result.push(filled_cells(&self.state,
+                                &cell, 1, 1, Color32::from_rgba_unmultiplied(255, 255, 255, 25)));
+                        } else {
+                            result.extend(blocked_cell(&self.state, &cell));
+                        }
+                    }
+                }
+                painter.extend(result);
             }
             DragComponentResponse::Released { pos, mut component } => {
                 component.set_pos(self.state.screen_to_grid(pos));
+                let dim = component.get_dimension();
+                let p0 = component.get_position();
+                for x in 0..dim.0 {
+                    for y in 0..dim.1 {
+                        if !self.grid_db.is_free_cell(p0 + grid_pos(x, y)) {
+                            return;
+                        }
+                    }
+                }
                 self.grid_db.add_component_with_unknown_id(component);
             }
             _ => {}
@@ -230,7 +265,6 @@ impl Field {
         let response = ui.allocate_rect(self.state.rect, Sense::drag().union(Sense::all()));
         self.refresh(ui, &response);
         self.display_grid(ui, &response);
-        self.handle_drag_resp(&ui.painter().with_clip_rect(self.state.rect));
         let grid_rect = grid_rect(0, self.state.screen_to_grid(self.state.rect.min),  self.state.screen_to_grid(self.state.rect.max));
         self.grid_db.get_visible_components(&grid_rect).iter().for_each(|u| { // Return iter
             u.display(&self.state, &ui.painter().with_clip_rect(self.state.rect));
@@ -241,6 +275,11 @@ impl Field {
 
         self.connection_builder.update(&mut self.grid_db, &self.state, &response, &painter);
         self.connection_builder.draw(&self.grid_db, &self.state, &ui.painter().with_clip_rect(self.state.rect));
+        self.handle_drag_resp(&ui.painter().with_clip_rect(self.state.rect));
+
+        if let Some(seg) = self.grid_db.get_hovered_segment(&self.state) {
+            seg.highlight(&self.state, &painter);
+        }
     }
 
     pub fn set_external_drag_resp(&mut self, resp:DragComponentResponse) {
@@ -261,11 +300,48 @@ struct ConnectionBuilder {
     anchors: Vec<GridPos>
 }
 
+
+fn simplify_path(path: Vec<GridPos>) -> Vec<GridPos> {
+    let mut cleaned = Vec::new();
+    if path.is_empty() {
+        return cleaned;
+    }
+
+    cleaned.push(path[0]);
+    for &point in &path[1..] {
+        if point != *cleaned.last().unwrap() {
+            cleaned.push(point);
+        }
+    }
+
+    if cleaned.len() < 3 {
+        return cleaned;
+    }
+
+    let mut simplified = Vec::new();
+    simplified.push(cleaned[0]);
+
+    for i in 1..cleaned.len() - 1 {
+        let prev = cleaned[i - 1];
+        let curr = cleaned[i];
+        let next = cleaned[i + 1];
+
+        let same_x = prev.x == curr.x && curr.x == next.x;
+        let same_y = prev.y == curr.y && curr.y == next.y;
+
+        if !(same_x || same_y) {
+            simplified.push(curr);
+        }
+    }
+
+    simplified.push(*cleaned.last().unwrap());
+    simplified
+}
+
 impl ConnectionBuilder {
     fn generate_full_path_by_anchors(&self, bd:&GridBD, target: &GridBDConnectionPoint) -> Option<Vec<GridPos>> {
         if let Some(cp) = &self.point {
             if let Some((comp1, p1))= bd.get_component_and_connection(cp) {
-                println!("!");
                 let mut result = vec![p1.get_pos(comp1) +  p1.get_grid_connection_offset()];
                 self.anchors.iter().for_each(|a| {
                     result.extend(bd.find_net_path(result.last().unwrap().clone(), a.clone())); // !!!
@@ -275,7 +351,7 @@ impl ConnectionBuilder {
                 let target_pos = target_con.get_pos(target_comp) + target_con.get_grid_connection_offset();
                 result.extend(bd.find_net_path(result.last().unwrap().clone(), target_pos.clone())); // !!!
                 result.push(target_pos);
-                return Some(result);
+                return Some(simplify_path(result));
             }
         }
         None
@@ -305,7 +381,6 @@ impl ConnectionBuilder {
     }
 
     fn toggle(&mut self, bd: &mut GridBD, state: &FieldState, point: GridBDConnectionPoint) {
-        println!("Toggle");
         match self.state {
             ConnectionBuilderState::IDLE => {
                 self.point = Some(point);
@@ -315,15 +390,13 @@ impl ConnectionBuilder {
                 let old_point = self.point.clone().unwrap();
                 self.state = ConnectionBuilderState::IDLE;
                 if let Some(points) = self.generate_full_path_by_anchors(bd, &point) {
-                    let net = Net {
+                    let mut net = Net {
                         id: bd.nets.len(), // fixme
                         start_point: old_point,
                         end_point: point,
                         points: points
                     };
                     bd.add_net(net);
-                } else {
-                    println!("A")
                 }
                 self.point = None;
                 self.anchors.clear();

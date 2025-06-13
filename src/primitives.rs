@@ -1,8 +1,8 @@
-use std::{collections::HashMap, f32::consts::FRAC_PI_2, i32, ops::Add, usize};
+use std::{cell, collections::HashMap, f32::consts::FRAC_PI_2, i32, ops::Add, usize};
 
 use eframe::egui_glow::painter;
-use egui::{emath::align, epaint::{TextShape, Vertex}, scroll_area::State, vec2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2};
-use rstar::{RTree, RTreeObject, AABB};
+use egui::{emath::align, epaint::{text::cursor, TextShape, Vertex}, scroll_area::State, vec2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2};
+use rstar::{Envelope, PointDistance, RTree, RTreeObject, AABB};
 
 use crate::field::{self, Field, FieldState};  // AABB = Axis-Aligned Bounding Box (прямоугольник)
 type Point = [i32; 2];  // Точка (x, y)
@@ -76,6 +76,41 @@ impl PartialEq for GridRect {
     }
 }
 
+impl RTreeObject for GridRect {
+    type Envelope = AABB<Point>;
+
+    fn envelope(&self) -> Self::Envelope {
+        AABB::from_corners(self.min.to_point(), self.max.to_point())
+    }
+}
+
+// Реализация PointDistance без `DistanceType`
+impl PointDistance for GridRect {
+    // Методы PointDistance возвращают u64, а не DistanceType
+    fn distance_2(&self, point: &Point) -> i32 {
+        let x = point[0];
+        let y = point[1];
+
+        let dx = if x < self.min.x {
+            self.min.x - x
+        } else if x > self.max.x {
+            x - self.max.x
+        } else {
+            0
+        };
+
+        let dy = if y < self.min.y {
+            self.min.y - y
+        } else if y > self.max.y {
+            y - self.max.y
+        } else {
+            0
+        };
+
+        dx * dx + dy * dy
+    }
+}
+
 pub fn grid_rect(id:usize, min: GridPos, max: GridPos) -> GridRect {
     return GridRect {
         id,
@@ -144,20 +179,11 @@ impl Net {
     }
 }
 
-impl RTreeObject for GridRect {
-    type Envelope = AABB<Point>;
-
-    fn envelope(&self) -> Self::Envelope {
-        AABB::from_corners(self.min.to_point(), self.max.to_point())
-    }
-}
 
 
 pub struct GridBD {
     components: HashMap<usize, Component>,
     tree : RTree<GridRect>,
-
-    // TODO: use it
     connections: HashMap<GridPos, ComponentConnection>,
     pub nets: HashMap<usize, Net>,
     net_tree : RTree<NetSegment>
@@ -242,9 +268,16 @@ impl GridBD {
         self.nets.insert(net.id, net);
     }
 
-    pub fn get_visible_nets(&self, rect: &GridRect) -> Vec<&Net> {
-        // fixme
-        return self.nets.values().collect();
+    pub fn get_hovered_segment(&self, state: &FieldState) -> Option<&NetSegment> {
+        let cell = state.screen_to_grid(state.cursor_pos?);
+        let segments = self.net_tree
+        .locate_in_envelope_intersecting(&cell.to_point().envelope());
+        for s in segments {
+            if s.is_hovered(state) {
+                return Some(s);
+            }
+        }
+        return None;
     }
 
     pub fn get_component_and_connection(&self, cp: &GridBDConnectionPoint) -> Option<(&Component, Connection)> {
@@ -258,6 +291,13 @@ impl GridBD {
 
     pub fn get_visible_net_segments(&self, rect: &GridRect) -> Vec<&NetSegment> {
         self.net_tree.locate_in_envelope_intersecting(&rect.envelope()).collect()
+    }
+
+    pub fn is_free_cell(&mut self, cell: GridPos) -> bool {
+        if let Some(a) = self.tree.nearest_neighbor(&cell.to_point()) {
+            return a.distance_2(&cell.to_point()) > 2;
+        }
+        return true;
     }
 }
 
@@ -327,9 +367,9 @@ impl Component {
     }
 
     pub fn draw_preview(&self, rect: &Rect, painter: &Painter) {
-        let grid_rect = self.get_grid_rect();
-        let w = grid_rect.max.x - grid_rect.min.x + 2;
-        let h = grid_rect.max.y - grid_rect.min.y + 2;
+        let (mut w, mut h) = self.get_dimension();
+        w += 2;
+        h += 2;
         let x_grid_size = rect.width() / w as f32;
         let y_grid_size = rect.height() / h as f32;
         let grid_size = x_grid_size.min(y_grid_size);
@@ -348,8 +388,8 @@ impl Component {
 
     pub fn get_dimension(&self) -> (i32, i32) {
         let grid_rect = self.get_grid_rect();
-        let w = grid_rect.max.x - grid_rect.min.x;
-        let h = grid_rect.max.y - grid_rect.min.y;
+        let w = grid_rect.max.x - grid_rect.min.x + 1;
+        let h = grid_rect.max.y - grid_rect.min.y + 1;
         return (w, h);
     }
 
@@ -368,7 +408,7 @@ impl Component {
 
 impl Unit {
     fn get_grid_rect(&self) -> GridRect {
-        grid_rect(self.id, self.pos, grid_pos(self.pos.x + self.width, self.pos.y + self.height))
+        grid_rect(self.id, self.pos, grid_pos(self.pos.x + self.width - 1, self.pos.y + self.height - 1))
     }
 
     pub fn display(&self, state: &FieldState, painter: &Painter) {
@@ -438,7 +478,6 @@ impl Port {
     pub fn is_hovered(&self, state: &FieldState, unit_pos: &GridPos) -> bool {
         if let Some(cursor_pos) = state.cursor_pos {
             let d = self.center(unit_pos, state).distance(cursor_pos);
-            // println!("center:{}, cursor:{}, {}, {}", self.center(unit_pos, state), cursor_pos, self.name, d);
             d <= state.grid_size * Self::PORT_SCALE * 2.0
         }
         else {
@@ -532,7 +571,7 @@ impl NetSegment {
     }
 
     pub fn get_mesh(&self, bd: &GridBD, state: &FieldState) -> Mesh {
-        let w = (state.grid_size * 0.1).max(0.5);
+        let w = (state.grid_size * 0.1).max(1.0);
         let half_w = w * 0.5;
         let ofs = Vec2::new(0.5 * state.grid_size, 0.5 * state.grid_size);
 
@@ -609,6 +648,34 @@ impl NetSegment {
         }
 
         mesh
+    }
+
+    pub fn is_hovered(&self, state: &FieldState) -> bool {
+        let ofs = Vec2::new(0.5 * state.grid_size, 0.5 * state.grid_size);
+        let Pos2{x: ax, y: ay} = state.grid_to_screen(&self.pos1) + ofs;
+        let Pos2{x: bx, y: by} = state.grid_to_screen(&self.pos2) + ofs;
+        if let Some(Pos2{x: px, y: py}) = state.cursor_pos {
+            if if self.is_horizontal() {ax.min(bx) > px || px > ax.max(bx)} else {ay.min(by) > py || py > ay.max(by)} {
+                return false;
+            }
+            let abx = bx - ax;
+            let aby = by - ay;
+            let apx = px - ax;
+            let apy = py - ay;
+            let cross = abx * apy - aby * apx;
+            let length_ab_sq = abx.powi(2) + aby.powi(2);
+            return ((cross * cross) / length_ab_sq) < (state.grid_size * 0.3).powi(2);
+        }
+        false
+    }
+
+    pub fn highlight(&self, state: &FieldState, painter:&Painter) {
+        let ofs = Vec2::new(0.5 * state.grid_size, 0.5 * state.grid_size);
+
+        let p1 = state.grid_to_screen(&self.pos1) + ofs;
+        let p2 = state.grid_to_screen(&self.pos2) + ofs;
+
+        painter.line_segment([p1,p2], Stroke::new((state.grid_size * 0.3).max(1.0), Color32::from_rgba_unmultiplied(100, 100, 0, 100)));
     }
 }
 
