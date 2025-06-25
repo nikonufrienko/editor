@@ -1,17 +1,19 @@
 use eframe::egui;
-use egui::{response, vec2, Align2, Id, LayerId, Sense, Vec2};
+use egui::{Id, LayerId};
 
-use crate::{component_lib::EXAMPLE_UNIT, field::{Field, GridType}, preview_window::PreviewWindow, primitives::{grid_pos, Component, ConnectionAlign, Port, Unit}};
+use crate::{
+    field::{Field, GridType},
+    preview_window::PreviewWindow,
+};
 
-
-mod primitives;
-mod field;
 mod component_lib;
+mod field;
+mod grid_db;
 mod preview_window;
 
 #[cfg(not(target_arch = "wasm32"))]
-fn main()  {
-    let options = eframe::NativeOptions{
+fn main() {
+    let options = eframe::NativeOptions {
         ..Default::default()
     };
     _ = eframe::run_native(
@@ -26,7 +28,7 @@ fn main() {
     use eframe::wasm_bindgen::JsCast as _;
 
     // Redirect `log` message to `console.log` and friends:
-    // eframe::WebLogger::init(log::LevelFilter::Debug).ok();
+    //eframe::WebLogger::init(log::LevelFilter::Debug).ok();
 
     let web_options = eframe::WebOptions::default();
 
@@ -67,7 +69,6 @@ fn main() {
     });
 }
 
-
 struct EditorApp {
     field: Field,
     grid_sel: bool,
@@ -77,8 +78,9 @@ struct EditorApp {
 impl EditorApp {
     fn new() -> Self {
         EditorApp {
-            field: Field::new(), grid_sel:true,
-            preview_window: PreviewWindow::new()
+            field: Field::new(),
+            grid_sel: true,
+            preview_window: PreviewWindow::new(),
         }
     }
 }
@@ -86,7 +88,21 @@ impl EditorApp {
 impl eframe::App for EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let foreground: LayerId = LayerId::new(egui::Order::Foreground, Id::new("foreground"));
-        self.field.set_external_drag_resp(self.preview_window.show(ctx, foreground, self.field.state.scale));
+        egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("Файл", |ui| {
+                    if ui.button("Сохранить").clicked() {
+                        // TODO:
+                        ui.close_menu();
+                    }
+                });
+            });
+        });
+        self.field.set_external_drag_resp(self.preview_window.show(
+            ctx,
+            foreground,
+            self.field.state.scale,
+        ));
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.toggle_value(&mut self.grid_sel, "Сетка");
             if self.grid_sel {
@@ -96,6 +112,5 @@ impl eframe::App for EditorApp {
             }
             self.field.show(ui);
         });
-
     }
 }

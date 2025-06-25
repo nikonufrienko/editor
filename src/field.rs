@@ -1,17 +1,21 @@
-
-
+use egui::{
+    Color32, CursorIcon, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind,
+    Vec2, pos2, vec2,
+};
 use std::sync::Arc;
-use std::mem;
-use eframe::egui_glow::painter;
-use egui::{pos2, vec2, Color32, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Vec2};
 
-use crate::{preview_window::DragComponentResponse, primitives::{grid_pos, grid_rect, Component, ConnectionAlign, GridBD, GridBDConnectionPoint, GridPos, Id, Net, Port, Unit}};
+use crate::{
+    grid_db::{
+        Component, ConnectionAlign, GridBD, GridBDConnectionPoint, GridPos, Id, Net, Port, Unit,
+        grid_pos, grid_rect,
+    },
+    preview_window::DragComponentResponse,
+};
 
 pub enum GridType {
     Points,
-    Cells
+    Cells,
 }
-
 
 pub struct FieldState {
     pub scale: f32,
@@ -25,19 +29,37 @@ pub struct FieldState {
 
 impl FieldState {
     pub fn grid_to_screen(&self, grid_pos: &GridPos) -> Pos2 {
-        return pos2(self.rect.left() + self.offset.x + grid_pos.x as f32 * self.grid_size, self.rect.top()  + self.offset.y + grid_pos.y as f32 * self.grid_size);
+        return pos2(
+            self.rect.left() + self.offset.x + grid_pos.x as f32 * self.grid_size,
+            self.rect.top() + self.offset.y + grid_pos.y as f32 * self.grid_size,
+        );
     }
 
     pub fn screen_to_grid(&self, screen_pos: Pos2) -> GridPos {
         let grid_x = (screen_pos.x - self.rect.left() - self.offset.x) / self.grid_size;
         let grid_y = (screen_pos.y - self.rect.top() - self.offset.y) / self.grid_size;
 
-        GridPos {x: grid_x.floor() as i32, y: grid_y.floor() as i32}
+        GridPos {
+            x: grid_x.floor() as i32,
+            y: grid_y.floor() as i32,
+        }
     }
 }
 
-pub fn filled_cells(state: &FieldState, grid_pos: &GridPos, width: i32, height: i32, color: Color32) -> Shape {
-    let rect = Rect::from_min_size(state.grid_to_screen(&grid_pos), vec2(state.grid_size * width as f32, state.grid_size * height as f32));
+pub fn filled_cells(
+    state: &FieldState,
+    grid_pos: &GridPos,
+    width: i32,
+    height: i32,
+    color: Color32,
+) -> Shape {
+    let rect = Rect::from_min_size(
+        state.grid_to_screen(&grid_pos),
+        vec2(
+            state.grid_size * width as f32,
+            state.grid_size * height as f32,
+        ),
+    );
     Shape::rect_filled(rect, 0.0, color)
 }
 
@@ -48,20 +70,31 @@ pub fn blocked_cell(state: &FieldState, pos: &GridPos) -> Vec<Shape> {
     let p2 = base_p + vec2(state.grid_size * 0.75, state.grid_size * 0.75);
     let p3 = base_p + vec2(state.grid_size * 0.25, state.grid_size * 0.75);
     let p4 = base_p + vec2(state.grid_size * 0.75, state.grid_size * 0.25);
-    result.push(Shape::line_segment([p1, p2], Stroke::new(1.0, Color32::RED)));
-    result.push(Shape::line_segment([p3, p4], Stroke::new(1.0, Color32::RED)));
-    result.push(filled_cells(&state,
-        &pos, 1, 1, Color32::from_rgba_unmultiplied(255, 0, 0, 25)));
+    result.push(Shape::line_segment(
+        [p1, p2],
+        Stroke::new(1.0, Color32::RED),
+    ));
+    result.push(Shape::line_segment(
+        [p3, p4],
+        Stroke::new(1.0, Color32::RED),
+    ));
+    result.push(filled_cells(
+        &state,
+        &pos,
+        1,
+        1,
+        Color32::from_rgba_unmultiplied(255, 0, 0, 25),
+    ));
     result
 }
-
 
 pub struct Field {
     pub state: FieldState,
     pub grid_type: GridType,
     pub grid_db: GridBD,
     connection_builder: ConnectionBuilder,
-    external_drag_resp: DragComponentResponse
+    external_drag_resp: DragComponentResponse,
+    drag_manager: DragManager,
 }
 
 impl Field {
@@ -73,112 +106,147 @@ impl Field {
     pub const POINT_MIN_SCALE: f32 = 2.0;
     pub const GRID_MIN_SCALE: f32 = 0.5;
     pub const MIN_DISPLAY_TEXT_SIZE: f32 = 3.0;
-    pub const LED_LEVEL0_SCALE: f32 = 0.5;
+    pub const LOD_LEVEL0_SCALE: f32 = 0.5;
 
     pub fn new() -> Self {
-        let scale = (Self::MAX_SCALE/10.0).max(Self::MIN_SCALE);
+        let scale = (Self::MAX_SCALE / 10.0).max(Self::MIN_SCALE);
         let mut db = GridBD::new();
-        let mut cnt = 0;
 
         for i in 0..100 {
             for j in 0..100 {
                 let unit = Unit {
-                    id: 0,
                     name: "АМОГУС".to_owned(),
                     pos: grid_pos(10 * i, 10 * j),
                     width: 5,
                     height: 6,
                     ports: vec![
-                        Port{
-                            inner_cell:grid_pos(0, 3),
-                            align:ConnectionAlign::LEFT,
+                        Port {
+                            cell: grid_pos(0, 3),
+                            align: ConnectionAlign::LEFT,
                             name: "vld".to_owned(),
                         },
-                        Port{
-                            inner_cell:grid_pos(0, 4),
-                            align:ConnectionAlign::LEFT,
+                        Port {
+                            cell: grid_pos(0, 4),
+                            align: ConnectionAlign::LEFT,
                             name: "data1".to_owned(),
                         },
-                        Port{
-                            inner_cell:grid_pos(0, 5),
-                            align:ConnectionAlign::LEFT,
+                        Port {
+                            cell: grid_pos(0, 5),
+                            align: ConnectionAlign::LEFT,
                             name: "data2".to_owned(),
                         },
-
-                        Port{
-                            inner_cell:grid_pos(4, 1),
-                            align:ConnectionAlign::RIGHT,
+                        Port {
+                            cell: grid_pos(4, 1),
+                            align: ConnectionAlign::RIGHT,
                             name: "vld".to_owned(),
                         },
-                        Port{
-                            inner_cell:grid_pos(4, 2),
-                            align:ConnectionAlign::RIGHT,
+                        Port {
+                            cell: grid_pos(4, 2),
+                            align: ConnectionAlign::RIGHT,
                             name: "data1".to_owned(),
                         },
-                        Port{
-                            inner_cell:grid_pos(4, 3),
-                            align:ConnectionAlign::RIGHT,
+                        Port {
+                            cell: grid_pos(4, 3),
+                            align: ConnectionAlign::RIGHT,
                             name: "data2".to_owned(),
                         },
-                        Port{
-                            inner_cell:grid_pos(2, 0),
-                            align:ConnectionAlign::TOP,
+                        Port {
+                            cell: grid_pos(2, 0),
+                            align: ConnectionAlign::TOP,
                             name: "info".to_owned(),
-                        }
-                ]};
-                db.add_component_with_unknown_id(Component::Unit(unit));
+                        },
+                    ],
+                };
+                db.push_component(Component::Unit(unit));
             }
         }
 
         Self {
-            state : FieldState {
+            state: FieldState {
                 scale: scale,
                 grid_size: Self::BASE_GRID_SIZE * scale,
                 offset: Vec2::default(),
-                rect : Rect { min: Pos2::default(), max: Pos2::default() },
-                label_font: FontId::monospace((Self::BASE_GRID_SIZE * scale * 0.5).min(Self::MAX_FONT_SIZE)),
+                rect: Rect {
+                    min: Pos2::default(),
+                    max: Pos2::default(),
+                },
+                label_font: FontId::monospace(
+                    (Self::BASE_GRID_SIZE * scale * 0.5).min(Self::MAX_FONT_SIZE),
+                ),
                 label_visible: Self::BASE_GRID_SIZE * scale * 0.5 >= Self::MIN_DISPLAY_TEXT_SIZE,
                 cursor_pos: None,
             },
-            grid_type : GridType::Cells,
+            grid_type: GridType::Cells,
             grid_db: db,
             external_drag_resp: DragComponentResponse::None,
-            connection_builder: ConnectionBuilder::new()
+            connection_builder: ConnectionBuilder::new(),
+            drag_manager: DragManager::new(),
         }
-
     }
 
     fn display_grid(&self, ui: &mut egui::Ui, response: &Response) {
-        let delta_x = if self.state.offset.x >= 0.0 {self.state.offset.x % self.state.grid_size} else {self.state.grid_size - (self.state.offset.x.abs()% self.state.grid_size)} ;
-        let delta_y = if self.state.offset.y >= 0.0 {self.state.offset.y % self.state.grid_size} else {self.state.grid_size - (self.state.offset.y.abs()% self.state.grid_size)} ;
+        let delta_x = if self.state.offset.x >= 0.0 {
+            self.state.offset.x % self.state.grid_size
+        } else {
+            self.state.grid_size - (self.state.offset.x.abs() % self.state.grid_size)
+        };
+        let delta_y = if self.state.offset.y >= 0.0 {
+            self.state.offset.y % self.state.grid_size
+        } else {
+            self.state.grid_size - (self.state.offset.y.abs() % self.state.grid_size)
+        };
 
-        let stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(255,255,255,10));
+        let stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 10));
         let mut shapes = vec![];
 
         match self.grid_type {
             GridType::Cells => {
                 if Self::GRID_MIN_SCALE < self.state.scale {
-                    for i in 0..((self.state.rect.width() - delta_x) / self.state.grid_size) as i32 + 1 {
+                    for i in
+                        0..((self.state.rect.width() - delta_x) / self.state.grid_size) as i32 + 1
+                    {
                         let x = self.state.rect.left() + delta_x + i as f32 * self.state.grid_size;
-                        shapes.push(Shape::line_segment([pos2(x, self.state.rect.top()), pos2(x, self.state.rect.bottom())], stroke));
+                        shapes.push(Shape::line_segment(
+                            [
+                                pos2(x, self.state.rect.top()),
+                                pos2(x, self.state.rect.bottom()),
+                            ],
+                            stroke,
+                        ));
                     }
 
-                    for j in 0..((self.state.rect.height() - delta_y) / self.state.grid_size) as i32 + 1 {
+                    for j in
+                        0..((self.state.rect.height() - delta_y) / self.state.grid_size) as i32 + 1
+                    {
                         let y = self.state.rect.top() + delta_y + j as f32 * self.state.grid_size;
-                        shapes.push(Shape::line_segment([pos2(self.state.rect.left(), y), pos2(self.state.rect.right(), y)], stroke));
+                        shapes.push(Shape::line_segment(
+                            [
+                                pos2(self.state.rect.left(), y),
+                                pos2(self.state.rect.right(), y),
+                            ],
+                            stroke,
+                        ));
                     }
                 }
             }
             GridType::Points => {
                 if Self::POINT_MIN_SCALE < self.state.scale {
-                    let vertical_lines = ((self.state.rect.width() - delta_x) / self.state.grid_size) as i32 + 1;
-                    let horizontal_lines = ((self.state.rect.height() - delta_y) / self.state.grid_size) as i32 + 1;
+                    let vertical_lines =
+                        ((self.state.rect.width() - delta_x) / self.state.grid_size) as i32 + 1;
+                    let horizontal_lines =
+                        ((self.state.rect.height() - delta_y) / self.state.grid_size) as i32 + 1;
 
                     for i in 0..vertical_lines {
                         for j in 0..horizontal_lines {
-                            let x = self.state.rect.left() + delta_x + i as f32 * self.state.grid_size;
-                            let y = self.state.rect.top() + delta_y + j as f32 * self.state.grid_size;
-                            shapes.push(Shape::circle_filled(pos2(x, y), 1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 50)));
+                            let x =
+                                self.state.rect.left() + delta_x + i as f32 * self.state.grid_size;
+                            let y =
+                                self.state.rect.top() + delta_y + j as f32 * self.state.grid_size;
+                            shapes.push(Shape::circle_filled(
+                                pos2(x, y),
+                                1.0,
+                                Color32::from_rgba_unmultiplied(255, 255, 255, 50),
+                            ));
                         }
                     }
                 }
@@ -188,29 +256,36 @@ impl Field {
         if response.hovered() {
             if let Some(pos) = response.hover_pos() {
                 let grid_cell_pos = self.state.screen_to_grid(pos);
-                shapes.push(filled_cells(&self.state, &grid_cell_pos, 1, 1, Color32::from_rgba_unmultiplied(255, 255, 255, 50)));
+                shapes.push(filled_cells(
+                    &self.state,
+                    &grid_cell_pos,
+                    1,
+                    1,
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 50),
+                ));
             }
         }
 
-        shapes.push(Shape::rect_stroke(self.state.rect, 0.0, Stroke::new(0.1, Color32::WHITE), StrokeKind::Outside));
+        shapes.push(Shape::rect_stroke(
+            self.state.rect,
+            0.0,
+            Stroke::new(0.1, Color32::WHITE),
+            StrokeKind::Outside,
+        ));
 
         ui.painter().with_clip_rect(self.state.rect).extend(shapes);
     }
 
-
     // Update state of field
     fn refresh(&mut self, ui: &mut egui::Ui, response: &Response) {
-        if response.dragged() {
-            self.state.offset += response.drag_delta();
-        }
-
         if response.hovered() {
             let zoom_delta = ui.input(|i| i.zoom_delta());
             let new_scale = (self.state.scale * zoom_delta).clamp(Self::MIN_SCALE, Self::MAX_SCALE);
             let zoom_factor = new_scale / self.state.scale;
 
             if let Some(hover_pos) = response.hover_pos() {
-                self.state.offset = (self.state.offset - hover_pos.to_vec2()) * zoom_factor + hover_pos.to_vec2();
+                self.state.offset =
+                    (self.state.offset - hover_pos.to_vec2()) * zoom_factor + hover_pos.to_vec2();
             }
 
             self.state.scale = new_scale;
@@ -220,28 +295,24 @@ impl Field {
                 self.state.label_visible = label_text_size > Self::MIN_DISPLAY_TEXT_SIZE;
                 self.state.label_font = FontId::monospace(label_text_size);
             }
+            if !self
+                .drag_manager
+                .refresh(&mut self.grid_db, &self.state, response, ui)
+            {
+                if response.dragged() {
+                    self.state.offset += response.drag_delta();
+                    ui.ctx()
+                        .output_mut(|o| o.cursor_icon = CursorIcon::Grabbing);
+                }
+            }
         }
         self.state.cursor_pos = response.hover_pos();
     }
 
     fn handle_drag_resp(&mut self, painter: &Painter) {
         match std::mem::take(&mut self.external_drag_resp) {
-            DragComponentResponse::Dragged{dim, pos}  => {
-
-                let p0 = self.state.screen_to_grid(pos);
-                let mut result = vec![];
-                for x in 0..dim.0 {
-                    for y in 0..dim.1 {
-                        let cell = p0 + grid_pos(x, y);
-                        if self.grid_db.is_free_cell(cell)  {
-                            result.push(filled_cells(&self.state,
-                                &cell, 1, 1, Color32::from_rgba_unmultiplied(255, 255, 255, 25)));
-                        } else {
-                            result.extend(blocked_cell(&self.state, &cell));
-                        }
-                    }
-                }
-                painter.extend(result);
+            DragComponentResponse::Dragged { dim, pos } => {
+                draw_component_drag_preview(&self.grid_db, &self.state, dim, painter, pos, None);
             }
             DragComponentResponse::Released { pos, mut component } => {
                 component.set_pos(self.state.screen_to_grid(pos));
@@ -254,7 +325,7 @@ impl Field {
                         }
                     }
                 }
-                self.grid_db.add_component_with_unknown_id(component);
+                self.grid_db.push_component(component);
             }
             _ => {}
         }
@@ -265,41 +336,53 @@ impl Field {
         let response = ui.allocate_rect(self.state.rect, Sense::drag().union(Sense::all()));
         self.refresh(ui, &response);
         self.display_grid(ui, &response);
-        let grid_rect = grid_rect(0, self.state.screen_to_grid(self.state.rect.min),  self.state.screen_to_grid(self.state.rect.max));
-        self.grid_db.get_visible_components(&grid_rect).iter().for_each(|u| { // Return iter
-            u.display(&self.state, &ui.painter().with_clip_rect(self.state.rect));
-        });
+        let grid_rect = grid_rect(
+            0,
+            self.state.screen_to_grid(self.state.rect.min),
+            self.state.screen_to_grid(self.state.rect.max),
+        );
+        self.grid_db
+            .get_visible_components(&grid_rect)
+            .iter()
+            .for_each(|u| {
+                // Return iter
+                u.display(&self.state, &ui.painter().with_clip_rect(self.state.rect));
+            });
         let painter = ui.painter().with_clip_rect(self.state.rect);
         let net_segments = self.grid_db.get_visible_net_segments(&grid_rect);
-        painter.extend(net_segments.iter().map(|segment| {Shape::Mesh(Arc::new(segment.get_mesh(&self.grid_db, &self.state)))}));
+        painter.extend(
+            net_segments
+                .iter()
+                .map(|segment| Shape::Mesh(Arc::new(segment.get_mesh(&self.grid_db, &self.state)))),
+        );
 
-        self.connection_builder.update(&mut self.grid_db, &self.state, &response, &painter);
-        self.connection_builder.draw(&self.grid_db, &self.state, &ui.painter().with_clip_rect(self.state.rect));
+        self.connection_builder
+            .update(&mut self.grid_db, &self.state, &response, &painter);
+        self.connection_builder.draw(
+            &self.grid_db,
+            &self.state,
+            &ui.painter().with_clip_rect(self.state.rect),
+        );
         self.handle_drag_resp(&ui.painter().with_clip_rect(self.state.rect));
-
-        if let Some(seg) = self.grid_db.get_hovered_segment(&self.state) {
-            seg.highlight(&self.state, &painter);
-        }
+        self.drag_manager
+            .draw_preview(&self.grid_db, &self.state, &painter);
     }
 
-    pub fn set_external_drag_resp(&mut self, resp:DragComponentResponse) {
+    pub fn set_external_drag_resp(&mut self, resp: DragComponentResponse) {
         self.external_drag_resp = resp;
     }
-
 }
-
 
 enum ConnectionBuilderState {
     IDLE,
-    ACTIVE
+    ACTIVE,
 }
 
 struct ConnectionBuilder {
-    state : ConnectionBuilderState,
-    point : Option<GridBDConnectionPoint>,
-    anchors: Vec<GridPos>
+    state: ConnectionBuilderState,
+    point: Option<GridBDConnectionPoint>,
+    anchors: Vec<GridPos>,
 }
-
 
 fn simplify_path(path: Vec<GridPos>) -> Vec<GridPos> {
     let mut cleaned = Vec::new();
@@ -339,16 +422,21 @@ fn simplify_path(path: Vec<GridPos>) -> Vec<GridPos> {
 }
 
 impl ConnectionBuilder {
-    fn generate_full_path_by_anchors(&self, bd:&GridBD, target: &GridBDConnectionPoint) -> Option<Vec<GridPos>> {
+    fn generate_full_path_by_anchors(
+        &self,
+        bd: &GridBD,
+        target: &GridBDConnectionPoint,
+    ) -> Option<Vec<GridPos>> {
         if let Some(cp) = &self.point {
-            if let Some((comp1, p1))= bd.get_component_and_connection(cp) {
-                let mut result = vec![p1.get_pos(comp1) +  p1.get_grid_connection_offset()];
+            if let Some((comp1, p1)) = bd.get_component_and_connection(cp) {
+                let mut result = vec![p1.get_pos(comp1) + p1.get_grid_connection_offset()];
                 self.anchors.iter().for_each(|a| {
                     result.extend(bd.find_net_path(result.last().unwrap().clone(), a.clone())); // !!!
                     result.push(a.clone());
                 });
                 let (target_comp, target_con) = bd.get_component_and_connection(target).unwrap();
-                let target_pos = target_con.get_pos(target_comp) + target_con.get_grid_connection_offset();
+                let target_pos =
+                    target_con.get_pos(target_comp) + target_con.get_grid_connection_offset();
                 result.extend(bd.find_net_path(result.last().unwrap().clone(), target_pos.clone())); // !!!
                 result.push(target_pos);
                 return Some(simplify_path(result));
@@ -361,17 +449,23 @@ impl ConnectionBuilder {
         Self {
             state: ConnectionBuilderState::IDLE,
             point: None,
-            anchors: vec![]
+            anchors: vec![],
         }
     }
 
-    fn update(&mut self, bd: &mut GridBD, state: &FieldState, response: &Response, painter: &egui::Painter) {
+    fn update(
+        &mut self,
+        bd: &mut GridBD,
+        state: &FieldState,
+        response: &Response,
+        painter: &egui::Painter,
+    ) {
         if let Some(con) = bd.get_hovered_connection(&state) {
-            let comp =  bd.get_component(&con.component_id).unwrap();
+            let comp = bd.get_component(&con.component_id).unwrap();
             let connection = comp.get_connection(con.connection_id).unwrap();
-            connection.highlight(&state, &comp.get_position(),  painter); // TODO: Move to draw
+            connection.highlight(&state, &comp.get_position(), painter); // TODO: Move to draw
             if response.clicked() {
-                self.toggle(bd, &state, con);
+                self.toggle(bd, con);
             }
         } else if response.clicked() {
             if let Some(pos) = state.cursor_pos {
@@ -380,7 +474,7 @@ impl ConnectionBuilder {
         }
     }
 
-    fn toggle(&mut self, bd: &mut GridBD, state: &FieldState, point: GridBDConnectionPoint) {
+    fn toggle(&mut self, bd: &mut GridBD, point: GridBDConnectionPoint) {
         match self.state {
             ConnectionBuilderState::IDLE => {
                 self.point = Some(point);
@@ -390,13 +484,11 @@ impl ConnectionBuilder {
                 let old_point = self.point.clone().unwrap();
                 self.state = ConnectionBuilderState::IDLE;
                 if let Some(points) = self.generate_full_path_by_anchors(bd, &point) {
-                    let mut net = Net {
-                        id: bd.nets.len(), // fixme
+                    bd.add_net(Net {
                         start_point: old_point,
                         end_point: point,
-                        points: points
-                    };
-                    bd.add_net(net);
+                        points: points,
+                    });
                 }
                 self.point = None;
                 self.anchors.clear();
@@ -411,7 +503,7 @@ impl ConnectionBuilder {
         }
     }
 
-    fn draw(& self, bd: &GridBD, state: &FieldState, painter: &egui::Painter)  {
+    fn draw(&self, bd: &GridBD, state: &FieldState, painter: &egui::Painter) {
         if let Some(point) = &self.point {
             //painter.line_segment(points, stroke)
             if let Some(comp) = bd.get_component(&point.component_id) {
@@ -422,59 +514,421 @@ impl ConnectionBuilder {
                 if let Some(con) = comp.get_connection(point.connection_id) {
                     let p1 = con.center(&comp.get_position(), state);
                     let p1_1_grid = con.get_pos(comp) + con.get_grid_connection_offset();
-                    let mut points = vec![p1, state.grid_to_screen(&p1_1_grid) + vec2(0.5 * state.grid_size, 0.5 * state.grid_size)];
+                    let mut points = vec![
+                        p1,
+                        state.grid_to_screen(&p1_1_grid)
+                            + vec2(0.5 * state.grid_size, 0.5 * state.grid_size),
+                    ];
                     let mut last_grid_p = p1_1_grid;
                     self.anchors.iter().for_each(|a| {
                         let path = bd.find_net_path(last_grid_p.clone(), a.clone());
-                        points.extend(path.iter().map(|t|{state.grid_to_screen(t) + vec2(0.5 * state.grid_size, 0.5 * state.grid_size)}));
-                        points.push(state.grid_to_screen(a) + vec2(0.5 * state.grid_size, 0.5 * state.grid_size));
+                        points.extend(path.iter().map(|t| {
+                            state.grid_to_screen(t)
+                                + vec2(0.5 * state.grid_size, 0.5 * state.grid_size)
+                        }));
+                        points.push(
+                            state.grid_to_screen(a)
+                                + vec2(0.5 * state.grid_size, 0.5 * state.grid_size),
+                        );
                         last_grid_p = a.clone();
                     });
                     if let Some(p2) = state.cursor_pos {
-                        points.extend(bd.find_net_path(state.screen_to_grid(points.last().unwrap().clone()), state.screen_to_grid(p2)).iter().map(|g|{state.grid_to_screen(&g) + vec2(state.grid_size*0.5, state.grid_size*0.5)}));
+                        points.extend(
+                            bd.find_net_path(
+                                state.screen_to_grid(points.last().unwrap().clone()),
+                                state.screen_to_grid(p2),
+                            )
+                            .iter()
+                            .map(|g| {
+                                state.grid_to_screen(&g)
+                                    + vec2(state.grid_size * 0.5, state.grid_size * 0.5)
+                            }),
+                        );
                         points.push(p2);
                     } else {
-
                     }
                     for i in 1..points.len() {
-                        if points[i-1] != points[i] { // fixme
-                            painter.circle_filled(points[i], state.grid_size * 0.15, Color32::DARK_GRAY);
-                            painter.line_segment([points[i-1], points[i]], Stroke::new(state.grid_size * 0.3, Color32::DARK_GRAY));
+                        if points[i - 1] != points[i] {
+                            // fixme
+                            painter.circle_filled(
+                                points[i],
+                                state.grid_size * 0.15,
+                                Color32::DARK_GRAY,
+                            );
+                            painter.line_segment(
+                                [points[i - 1], points[i]],
+                                Stroke::new(state.grid_size * 0.3, Color32::DARK_GRAY),
+                            );
                         }
                     }
-
                 }
             }
         }
     }
 }
 
-
-enum ComponentManagerState {
-    IDLE,
-    ACTIVE,
-    SELECTED,
-    DRAGGED
+// INTERACTION MANAGER???
+#[derive(PartialEq)]
+enum DragState {
+    Idle,
+    NetDragged { net_id: Id, segment_id: Id },
+    ComponentSelected(Id),
+    ComponentDragged { id: Id, grab_ofs: Vec2 },
 }
 
-struct ComponentManager {
-    state : ComponentManagerState,
-    selected_components_ids : Vec<Id>
+struct DragManager {
+    state: DragState,
+    drag_delta: Vec2,
 }
 
-impl ComponentManager {
+fn draw_component_drag_preview(
+    bd: &GridBD,
+    state: &FieldState,
+    dim: (i32, i32),
+    painter: &Painter,
+    pos: Pos2,
+    component_id: Option<Id>,
+) {
+    let p0 = state.screen_to_grid(pos);
+    let mut result = vec![];
+    for x in 0..dim.0 {
+        for y in 0..dim.1 {
+            let cell = p0 + grid_pos(x, y);
+            let available = if let Some(id) = component_id {
+                bd.is_available_cell(cell, id)
+            } else {
+                bd.is_free_cell(cell)
+            };
+            if available {
+                result.push(filled_cells(
+                    state,
+                    &cell,
+                    1,
+                    1,
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 25),
+                ));
+            } else {
+                result.extend(blocked_cell(state, &cell));
+            }
+        }
+    }
+    painter.extend(result);
+}
+
+impl DragManager {
     fn new() -> Self {
         Self {
-            state: ComponentManagerState::IDLE,
-            selected_components_ids: vec![]
+            state: DragState::Idle,
+            drag_delta: vec2(0.0, 0.0),
         }
     }
 
-    fn refresh() {
-
+    fn move_net(&self, cursor_grid_pos: &GridPos, bd: &mut GridBD) {
+        match self.state {
+            DragState::NetDragged { net_id, segment_id } => {
+                let GridPos { x, y } = cursor_grid_pos;
+                let mut net = bd.remove_net(&net_id).unwrap();
+                let p1 = net.points[segment_id];
+                let p2 = net.points[segment_id + 1];
+                if p1.y == p2.y {
+                    net.points[segment_id] = grid_pos(p1.x, *y);
+                    net.points[segment_id + 1] = grid_pos(p2.x, *y);
+                } else {
+                    net.points[segment_id] = grid_pos(*x, p1.y);
+                    net.points[segment_id + 1] = grid_pos(*x, p2.y);
+                }
+                if net.points.len() > 0 && (segment_id == net.points.len() - 2) {
+                    net.points.push(p2);
+                }
+                if segment_id == 0 {
+                    net.points.insert(0, p1);
+                }
+                net.points = simplify_path(net.points);
+                bd.add_net(net);
+            }
+            _ => {}
+        }
     }
 
-    fn draw() {
+    fn move_component(&self, unit_id: &Id, bd: &mut GridBD, new_pos: GridPos) {
+        let comp = bd.get_component(unit_id).unwrap();
+        let comp_id = unit_id.clone();
 
+        if bd.is_available_location(new_pos, comp.get_dimension(), comp_id) {
+            // rebuild
+            let old_pos = comp.get_position();
+            let delta_y = new_pos.y - old_pos.y;
+            let delta_x = new_pos.x - old_pos.x;
+
+            for net_id in bd.get_connected_nets(&comp_id) {
+                let mut net = bd.remove_net(&net_id).unwrap();
+                let pts_len = net.points.len();
+
+                if pts_len >= 2 {
+                    if comp_id == net.start_point.component_id
+                        && comp_id == net.end_point.component_id
+                    {
+                        // Move all points if component is connected to both ends
+                        for i in 0..net.points.len() {
+                            net.points[i] = net.points[i] + grid_pos(delta_x, delta_y);
+                        }
+                    } else if comp_id == net.start_point.component_id {
+                        // Handle component connected to start of net
+                        if net.points[0].y == net.points[1].y {
+                            // horizontal segment
+                            if net.points.len() >= 4 {
+                                // Has another vertical segment that can be moved
+                                net.points[0] += grid_pos(delta_x, delta_y);
+                                net.points[1] += grid_pos(delta_x, delta_y);
+                                net.points[2] += grid_pos(delta_x, 0);
+                            } else {
+                                net.points[0].x += delta_x;
+                                if delta_y != 0 {
+                                    net.points.insert(0, net.points[0] + grid_pos(0, delta_y));
+                                }
+                            }
+                        } else {
+                            // vertical segment
+                            if net.points.len() >= 4 {
+                                // Has another horizontal segment that can be moved
+                                net.points[0] += grid_pos(delta_x, delta_y);
+                                net.points[1] += grid_pos(delta_x, delta_y);
+                                net.points[2] += grid_pos(0, delta_y);
+                            } else {
+                                net.points[0].y += delta_y; // Fixed: change Y instead of X
+                                if delta_x != 0 {
+                                    net.points.insert(0, net.points[0] + grid_pos(delta_x, 0));
+                                }
+                            }
+                        }
+                    } else if comp_id == net.end_point.component_id {
+                        // Handle component connected to end of net
+                        if net.points[pts_len - 1].y == net.points[pts_len - 2].y {
+                            // horizontal segment
+                            if net.points.len() >= 4 {
+                                net.points[pts_len - 1] += grid_pos(delta_x, delta_y);
+                                net.points[pts_len - 2] += grid_pos(delta_x, delta_y);
+                                net.points[pts_len - 3] += grid_pos(delta_x, 0);
+                            } else {
+                                net.points[pts_len - 1].x += delta_x;
+                                if delta_y != 0 {
+                                    net.points
+                                        .push(net.points[pts_len - 1] + grid_pos(0, delta_y));
+                                }
+                            }
+                        } else {
+                            // vertical segment
+                            if net.points.len() >= 4 {
+                                net.points[pts_len - 1] += grid_pos(delta_x, delta_y);
+                                net.points[pts_len - 2] += grid_pos(delta_x, delta_y);
+                                net.points[pts_len - 3] += grid_pos(0, delta_y);
+                            } else {
+                                net.points[pts_len - 1].y += delta_y;
+                                if delta_x != 0 {
+                                    net.points
+                                        .push(net.points[pts_len - 1] + grid_pos(delta_x, 0));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                net.points = simplify_path(net.points);
+                bd.add_net(net);
+            }
+
+            let mut comp = bd.remove_component(unit_id).unwrap();
+            comp.set_pos(new_pos);
+            bd.insert_component(comp_id, comp);
+        }
+    }
+
+    /// Returns false if no drag action performed
+    fn refresh(
+        &mut self,
+        bd: &mut GridBD,
+        state: &FieldState,
+        response: &Response,
+        ui: &egui::Ui,
+    ) -> bool {
+        match self.state {
+            DragState::NetDragged { net_id, segment_id } => {
+                if let Some(hover_pos) = state.cursor_pos {
+                    let segment = bd
+                        .nets
+                        .get(&net_id)
+                        .unwrap()
+                        .get_segment(segment_id, net_id)
+                        .unwrap();
+                    if segment.is_horizontal() {
+                        ui.ctx()
+                            .output_mut(|o| o.cursor_icon = CursorIcon::ResizeVertical);
+                    } else {
+                        ui.ctx()
+                            .output_mut(|o| o.cursor_icon = CursorIcon::ResizeHorizontal);
+                    }
+                    if response.dragged() {
+                        self.drag_delta += response.drag_delta();
+                        return true;
+                    } else {
+                        self.drag_delta = vec2(0.0, 0.0);
+                        //bd.remove_net(&net_id);
+                        self.move_net(&state.screen_to_grid(hover_pos), bd);
+                        self.state = DragState::Idle
+                    }
+                }
+            }
+            DragState::Idle => {
+                if let Some(segment) = bd.get_hovered_segment(state) {
+                    if segment.is_horizontal() {
+                        ui.ctx()
+                            .output_mut(|o| o.cursor_icon = CursorIcon::ResizeVertical);
+                    } else {
+                        ui.ctx()
+                            .output_mut(|o| o.cursor_icon = CursorIcon::ResizeHorizontal);
+                    }
+                    if response.drag_started() || response.dragged() {
+                        self.drag_delta += response.drag_delta();
+                        self.state = DragState::NetDragged {
+                            net_id: segment.net_id,
+                            segment_id: segment.inner_id,
+                        };
+                        return true;
+                    }
+                } else if let Some(id) = bd.get_hovered_component_id(state) {
+                    ui.ctx()
+                        .output_mut(|o| o.cursor_icon = CursorIcon::Crosshair);
+                    if response.clicked() {
+                        self.state = DragState::ComponentSelected(*id);
+                        return true;
+                    }
+                }
+            }
+            DragState::ComponentSelected(id) => {
+                let comp = bd.get_component(&id).unwrap();
+                if ui.input(|i| i.key_pressed(egui::Key::Delete)) {
+                    bd.remove_component_with_connected_nets(&id);
+                    self.state = DragState::Idle;
+                    return true;
+                } else if comp.is_hovered(state) {
+                    ui.ctx().output_mut(|o| o.cursor_icon = CursorIcon::Grab);
+                    if response.dragged() {
+                        if let Some(hovepos) = response.hover_pos() {
+                            self.state = DragState::ComponentDragged {
+                                id,
+                                grab_ofs: hovepos.to_vec2()
+                                    - state.grid_to_screen(&comp.get_position()).to_vec2(),
+                            };
+                        }
+                    }
+                    return true;
+                } else if response.clicked() {
+                    self.state = DragState::Idle;
+                }
+            } // TODO
+            DragState::ComponentDragged { id, grab_ofs } => {
+                if response.dragged() {
+                    ui.ctx()
+                        .output_mut(|o| o.cursor_icon = CursorIcon::Grabbing);
+                } else {
+                    if let Some(pos) = state.cursor_pos {
+                        self.move_component(&id, bd, state.screen_to_grid(pos - grab_ofs));
+                    }
+                    self.state = DragState::Idle;
+                }
+                return true;
+            }
+        }
+        false
+    }
+
+    fn draw_preview(&mut self, bd: &GridBD, state: &FieldState, painter: &Painter) {
+        match self.state {
+            DragState::NetDragged { net_id, segment_id } => {
+                let ofs = vec2(0.5, 0.5) * state.grid_size;
+                if let Some(pos) = state.cursor_pos {
+                    let GridPos { x, y } = state.screen_to_grid(pos);
+                    let segment = bd
+                        .nets
+                        .get(&net_id)
+                        .unwrap()
+                        .get_segment(segment_id, net_id)
+                        .unwrap();
+                    let (p1, p2) = if segment.is_horizontal() {
+                        (
+                            state.grid_to_screen(&grid_pos(segment.pos1.x, y)),
+                            state.grid_to_screen(&grid_pos(segment.pos2.x, y)),
+                        )
+                    } else {
+                        (
+                            state.grid_to_screen(&grid_pos(x, segment.pos1.y)),
+                            state.grid_to_screen(&grid_pos(x, segment.pos2.y)),
+                        )
+                    };
+                    let mut pts = vec![p1 + ofs, p2 + ofs];
+                    if let Some(next_segment) = bd
+                        .nets
+                        .get(&net_id)
+                        .unwrap()
+                        .get_segment(segment_id + 1, net_id)
+                    {
+                        pts.push(state.grid_to_screen(&next_segment.pos2) + ofs);
+                    } else {
+                        pts.push(state.grid_to_screen(&segment.pos2) + ofs);
+                    }
+                    if let Some(prev_segment) = bd
+                        .nets
+                        .get(&net_id)
+                        .unwrap()
+                        .get_segment(segment_id.wrapping_sub(1), net_id)
+                    {
+                        pts.insert(0, state.grid_to_screen(&prev_segment.pos1) + ofs);
+                    } else {
+                        pts.insert(0, state.grid_to_screen(&segment.pos1) + ofs);
+                    }
+                    painter.line(
+                        pts,
+                        Stroke::new(
+                            state.grid_size * 0.1,
+                            Color32::from_rgba_unmultiplied(100, 100, 0, 100),
+                        ),
+                    );
+                }
+            }
+            DragState::Idle => {
+                if let Some(seg) = bd.get_hovered_segment(state) {
+                    seg.highlight(state, &painter);
+                }
+            }
+            DragState::ComponentSelected(id) => {
+                if let Some(comp) = bd.get_component(&id) {
+                    let rect = comp.get_grid_rect(id);
+                    painter.rect_stroke(
+                        Rect::from_min_max(
+                            state.grid_to_screen(&rect.min),
+                            state.grid_to_screen(&(rect.max + grid_pos(1, 1))),
+                        ),
+                        state.grid_size * 0.1,
+                        Stroke::new(
+                            state.grid_size * 0.15,
+                            Color32::from_rgba_unmultiplied(100, 100, 0, 100),
+                        ),
+                        StrokeKind::Outside,
+                    );
+                }
+            }
+            DragState::ComponentDragged { id, grab_ofs } => {
+                if let Some(pos) = state.cursor_pos {
+                    draw_component_drag_preview(
+                        bd,
+                        state,
+                        bd.get_component(&id).unwrap().get_dimension(),
+                        painter,
+                        pos - grab_ofs,
+                        Some(id),
+                    );
+                }
+            }
+        }
     }
 }
