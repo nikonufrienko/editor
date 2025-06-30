@@ -1,13 +1,10 @@
-use std::{
-    f32::consts::FRAC_PI_2,
-    ops::{Add, AddAssign},
+use std::{ f32::consts::{FRAC_2_PI, FRAC_PI_2, PI}, ops::{Add, AddAssign}
 };
 
 use egui::{
-    Color32, FontId, Mesh, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2,
-    epaint::{TextShape, Vertex},
-    vec2,
+    ahash::{HashMap, HashMapExt}, emath::TSTransform, epaint::{PathShape, PathStroke, TextShape, Vertex}, pos2, vec2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2
 };
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
@@ -147,6 +144,8 @@ pub struct Unit {
 }
 
 impl Unit {
+    const ACTIONS:&'static [ComponentAction] = &[ComponentAction::Remove];
+
     pub fn display(&self, state: &FieldState, painter: &Painter) {
         // TODO: Add LOD level
         // 1. Display unit with ports and labels
@@ -174,9 +173,198 @@ impl Unit {
     }
 }
 
+
+
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum Rotation {
+    ROT0, ROT90, ROT180, ROT270
+}
+
+impl Rotation {
+    fn to_radians(&self) -> f32 {
+        match self {
+            Rotation::ROT0 => 0.0,
+            Rotation::ROT90 => FRAC_PI_2,
+            Rotation::ROT180 => PI,
+            Rotation::ROT270 => PI + FRAC_PI_2,
+        }
+    }
+
+    fn rotated_up(&self) -> Rotation {
+        match self {
+            Rotation::ROT0      => Rotation::ROT90,
+            Rotation::ROT90     => Rotation::ROT180,
+            Rotation::ROT180    => Rotation::ROT270,
+            Rotation::ROT270    => Rotation::ROT0,
+        }
+    }
+
+    fn rotated_down(&self) -> Rotation {
+        match self {
+            Rotation::ROT90     => Rotation::ROT0,
+            Rotation::ROT180    => Rotation::ROT90,
+            Rotation::ROT270    => Rotation::ROT180,
+            Rotation::ROT0      => Rotation::ROT270,
+        }
+    }
+
+    fn cos(&self) -> i32 {
+        match self {
+            Rotation::ROT90     => 0,
+            Rotation::ROT180    => -1,
+            Rotation::ROT270    => 0,
+            Rotation::ROT0      => 1,
+        }
+    }
+
+    fn sin(&self) -> i32 {
+        match self {
+            Rotation::ROT90     => 1,
+            Rotation::ROT180    => 0,
+            Rotation::ROT270    => -1,
+            Rotation::ROT0      => 0,
+        }
+    }
+
+    fn rotate_grid_pos(&self, point: GridPos, center: GridPos) -> GridPos{
+        let dx = point.x - center.x;
+        let dy = point.y - center.y;
+        let cos_a = self.cos();
+        let sin_a = self.sin();
+        grid_pos(
+            center.x + dx * cos_a - dy  * sin_a,
+            center.y + dx * sin_a + dy * cos_a,
+        )
+    }
+
+    fn rotate_point(&self, point: Pos2, center: Pos2) -> Pos2 {
+        let dx = point.x - center.x;
+        let dy = point.y - center.y;
+        let cos_a = self.cos() as f32;
+        let sin_a = self.sin() as f32;
+        Pos2::new(
+            center.x + dx * cos_a - dy * sin_a,
+            center.y + dx * sin_a + dy * cos_a,
+        )
+    }
+}
+
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct AndGate {
+    pub n_inputs: u32,
+    pub pos : GridPos,
+    pub rotation : Rotation
+}
+
+impl AndGate {
+    const ACTIONS:&'static [ComponentAction] = &[ComponentAction::RotateDown, ComponentAction::RotateUp, ComponentAction::Remove];
+
+    fn get_dimension(&self) -> (i32, i32) {
+        let (w, h) = if self.n_inputs % 2 == 0 {
+            (2, (2 * self.n_inputs - 1) as i32)
+        } else {
+            (2, self.n_inputs as i32)
+        };
+        match self.rotation {
+            Rotation::ROT0 => (w, h),
+            Rotation::ROT90 => (h, w),
+            Rotation::ROT180 => (w, h),
+            Rotation::ROT270 => (h, w),
+        }
+    }
+
+    fn get_connection_cells(&self) -> Vec<ConnectionCell> {
+        (0..self.n_inputs).map(|i| {
+        ConnectionCell {
+            cell : self.pos + grid_pos(0, i as i32),
+            inner_id: i as Id
+        }}).collect()
+    }
+
+    fn apply_rotation(&self, points: Vec<Pos2>, state: &FieldState) -> Vec<Pos2> {
+        let rot_center = state.grid_to_screen(&self.pos);
+        let dim = self.get_dimension();
+        let rot_ofs = match self.rotation {
+            Rotation::ROT0   => vec2(0.0, 0.0),
+            Rotation::ROT90  => vec2(dim.0 as f32, 0.0)  * state.grid_size,
+            Rotation::ROT180 => vec2(dim.0 as f32, dim.1 as f32) * state.grid_size,
+            Rotation::ROT270 => vec2(0.0, dim.1 as f32) * state.grid_size,
+        };
+        points.iter().map(|p| {self.rotation.rotate_point(*p, rot_center) + rot_ofs}).collect()
+    }
+
+    fn apply_rotation_grid_pos(&self, points: Vec<GridPos>) -> Vec<GridPos> {
+        let rot_center = self.pos;
+        let dim = self.get_dimension();
+        let rot_ofs = match self.rotation {
+            Rotation::ROT0   => grid_pos(0, 0),
+            Rotation::ROT90  => grid_pos(dim.0, 0),
+            Rotation::ROT180 => grid_pos(dim.0, dim.1),
+            Rotation::ROT270 => grid_pos(0, dim.1),
+        };
+        points.iter().map(|p| {self.rotation.rotate_grid_pos(*p, rot_center) + rot_ofs}).collect()
+    }
+
+    fn get_connection_cells_raw(&self) -> Vec<GridPos> {
+        if self.n_inputs % 2 == 0 {
+            (0..self.n_inputs).map(|i: u32| {self.pos + grid_pos(0, i as i32)}).collect()
+        } else {
+            (0..self.n_inputs).map(|i: u32| {self.pos + grid_pos(0, 2 * i as i32)}).collect()
+        }
+    }
+
+    fn get_connections_cells(&self) -> Vec<ConnectionCell> {
+        self.apply_rotation_grid_pos(self.get_connection_cells_raw()).iter().enumerate().map(|(i, p)| {
+            ConnectionCell { cell : *p, inner_id: i}
+        }).collect()
+    }
+
+    fn display(&self, state: &FieldState, painter: &Painter) {
+        let stroke_w = 1.0 * state.scale;
+        let height = if self.n_inputs % 2 == 0 {
+            (2 * self.n_inputs - 1) as f32
+        } else {
+            self.n_inputs as f32
+        } * state.grid_size;
+        let radius_x = state.grid_size - stroke_w / 2.0;
+        let radius_y = height as f32 / 2.0 - stroke_w / 2.0;
+        let pos = state.grid_to_screen(&self.pos);
+        let center = pos + vec2(state.grid_size, height / 2.0);
+
+        let n_points = 30;
+        let mut points = (0..=n_points).map(|i| {
+            let angle = -PI / 2.0 + PI * (i as f32 / n_points as f32);
+            let x = center.x + radius_x * angle.cos();
+            let y = center.y + radius_y * angle.sin();
+            Pos2::new(x, y)
+        }).collect::<Vec<_>>();
+        points.insert(0, pos + vec2(stroke_w / 2.0, stroke_w / 2.0));
+        points.insert(0, pos + vec2(stroke_w / 2.0, height - stroke_w / 2.0) );
+
+        let polygon = Shape::convex_polygon(
+            self.apply_rotation(points, state),
+            Color32::GRAY,
+            Stroke::new(stroke_w, Color32::DARK_GRAY),
+        );
+        painter.add(polygon);
+
+        let inc = if self.n_inputs % 2 == 0 {2} else {1};
+        let mut port_points: Vec<Pos2> = (0..self.n_inputs).map(|i|{pos + vec2(0.0, (i * inc) as f32 * state.grid_size + state.grid_size/2.0)}).collect();
+        port_points.push(pos + vec2(2.0 * state.grid_size, height / 2.0));
+        let port_points = self.apply_rotation(port_points, state);
+        port_points.iter().for_each(|p| {
+            painter.circle_filled(p.clone(), state.grid_size/10.0, Color32::DARK_GRAY);
+        });
+    }
+}
+
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Component {
     Unit(Unit),
+    AndGate(AndGate),
 }
 
 pub struct ConnectionCell {
@@ -197,6 +385,7 @@ impl Component {
     pub fn get_position(&self) -> GridPos {
         match self {
             Component::Unit(u) => u.pos,
+            Component::AndGate(g) => g.pos
         }
     }
 
@@ -212,11 +401,11 @@ impl Component {
     pub fn display(&self, state: &FieldState, painter: &Painter) {
         match self {
             Component::Unit(u) => u.display(state, painter),
+            Component::AndGate(g) => g.display(state, painter)
         }
     }
 
     pub fn get_connection_cells(&self) -> Vec<ConnectionCell> {
-        // TODO: remove it?
         match self {
             Component::Unit(unit) => unit
                 .ports
@@ -227,24 +416,14 @@ impl Component {
                     inner_id: i,
                 })
                 .collect(),
-        }
-    }
-
-    pub fn get_connection(&self, inner_id: Id) -> Option<Connection> {
-        match self {
-            Component::Unit(unit) => {
-                if let Some(p) = unit.ports.get(inner_id) {
-                    Some(Connection::Port(p))
-                } else {
-                    None
-                }
-            }
+            Component::AndGate(g) => g.get_connection_cells()
         }
     }
 
     pub fn set_pos(&mut self, pos: GridPos) {
         match self {
             Component::Unit(unit) => unit.pos = pos,
+            Component::AndGate(g) => g.pos = pos,
         }
     }
 
@@ -273,6 +452,7 @@ impl Component {
     pub fn get_dimension(&self) -> (i32, i32) {
         match self {
             Component::Unit(u) => (u.width, u.height),
+            Component::AndGate(g) => g.get_dimension()
         }
     }
 
@@ -281,13 +461,83 @@ impl Component {
             let grid_cursor_pos = state.screen_to_grid(cursor_pos);
             let dim = self.get_dimension();
             let min: GridPos = self.get_position();
-            let max = min + grid_pos(dim.0, dim.1);
+            let max = min + grid_pos(dim.0 - 1, dim.1 - 1);
             return min.x <= grid_cursor_pos.x
                 && grid_cursor_pos.x <= max.x
                 && min.y <= grid_cursor_pos.y
                 && grid_cursor_pos.y <= max.y;
         }
         return false;
+    }
+
+    pub fn is_rotatable(&self) -> bool {
+        match self {
+            Self::AndGate(_g) => true,
+            Self::Unit(_u) => false
+        }
+    }
+
+    pub fn rotate_up(&mut self) {
+        match self {
+            Self::AndGate(g) => {
+                g.rotation = g.rotation.rotated_up()
+            },
+            _ => {}
+        }
+    }
+
+    pub fn rotate_down(&mut self) {
+        match self {
+            Self::AndGate(g) => {
+                g.rotation = g.rotation.rotated_down()
+            },
+            _ => {}
+        }
+    }
+
+    pub fn get_available_actions(&self) -> &'static [ComponentAction] {
+        match self {
+            Self::AndGate(_g) => AndGate::ACTIONS,
+            Self::Unit(_u) => Unit::ACTIONS,
+        }
+    }
+
+    pub fn highlight_connection(&self, connection_id: Id, state: &FieldState, painter: &Painter) {
+        match self {
+            Component::Unit(unit) => {
+                if let Some(p) = unit.ports.get(connection_id) {
+                    p.highlight(state, &unit.pos, painter);
+                }
+            },
+            Component::AndGate(g) => {}, // TODO
+        }
+    }
+
+    pub fn get_connection_position(&self, connection_id: Id, state: &FieldState) -> Option<Pos2> {
+        match self {
+            Component::Unit(unit) => {
+                let p= unit.ports.get(connection_id)?;
+                Some(p.center(&unit.pos, state))
+            },
+            Component::AndGate(g) => None, // TODO
+        }
+    }
+
+    pub fn get_connection_dock_cell(&self, connection_id: Id) -> Option<GridPos> {
+        match self {
+            Component::Unit(unit) => {
+                let p= unit.ports.get(connection_id)?;
+                Some(p.get_dock_cell(&unit.pos))
+            },
+            Component::AndGate(g) => None, // TODO
+        }
+    }
+
+    pub fn is_connection_hovered(&self, connection_id: Id, state: &FieldState) -> bool{
+        match self {
+            Component::Unit(unit) => unit.ports.get(connection_id).is_some_and(|p| {p.is_hovered(state, &unit.pos)}),
+            Component::AndGate(g) => false, // TODO
+        }
     }
 }
 
@@ -299,6 +549,16 @@ impl Port {
             x: unit_pos.x + self.cell.x,
             y: unit_pos.y + self.cell.y,
         }) + self.align.grid_offset() * state.grid_size
+    }
+
+    pub fn get_dock_cell(&self, unit_pos: &GridPos) -> GridPos {
+        self.cell + unit_pos.clone() +
+        match self.align {
+            ConnectionAlign::BOTTOM => grid_pos(0, 1),
+            ConnectionAlign::TOP => grid_pos(0, -1),
+            ConnectionAlign::LEFT => grid_pos(-1, 0),
+            ConnectionAlign::RIGHT => grid_pos(1, 0),
+        }
     }
 
     pub fn display(&self, unit_pos: &GridPos, state: &FieldState, painter: &Painter) {
@@ -356,51 +616,6 @@ impl Port {
             state.grid_size * Self::PORT_SCALE * 3.0,
             Color32::from_rgba_unmultiplied(100, 100, 0, 100),
         );
-    }
-}
-
-pub enum Connection<'a> {
-    Port(&'a Port),
-}
-
-impl<'a> Connection<'a> {
-    pub fn is_hovered(&self, state: &FieldState, component_pos: &GridPos) -> bool {
-        match self {
-            Self::Port(p) => p.is_hovered(state, component_pos),
-        }
-    }
-
-    pub fn highlight(&self, state: &FieldState, comp_pos: &GridPos, painter: &Painter) {
-        match self {
-            Self::Port(p) => p.highlight(state, comp_pos, painter),
-        }
-    }
-
-    pub fn center(&self, comp_pos: &GridPos, state: &FieldState) -> Pos2 {
-        match self {
-            Self::Port(p) => p.center(comp_pos, state),
-        }
-    }
-
-    pub fn get_connection_align(&self) -> ConnectionAlign {
-        match self {
-            Self::Port(p) => p.align.clone(),
-        }
-    }
-
-    pub fn get_grid_connection_offset(&self) -> GridPos {
-        match self.get_connection_align() {
-            ConnectionAlign::BOTTOM => grid_pos(0, 1),
-            ConnectionAlign::TOP => grid_pos(0, -1),
-            ConnectionAlign::LEFT => grid_pos(-1, 0),
-            ConnectionAlign::RIGHT => grid_pos(1, 0),
-        }
-    }
-
-    pub fn get_pos(&self, owner: &Component) -> GridPos {
-        match self {
-            Connection::Port(p) => p.cell + owner.get_position(),
-        }
     }
 }
 
@@ -466,14 +681,14 @@ impl NetSegment {
         let mut pts = vec![p1, p2];
 
         if let Some(cp) = &self.con1 {
-            if let Some((comp, con)) = bd.get_component_and_connection(cp) {
-                pts.insert(0, con.center(&comp.get_position(), state));
+            if let Some(comp) = bd.get_component(&cp.component_id) {
+                pts.insert(0, comp.get_connection_position(cp.connection_id, state).unwrap());
             }
         }
 
         if let Some(cp) = &self.con2 {
-            if let Some((comp, con)) = bd.get_component_and_connection(cp) {
-                pts.push(con.center(&comp.get_position(), state));
+            if let Some(comp) = bd.get_component(&cp.component_id) {
+                pts.push(comp.get_connection_position(cp.connection_id, state).unwrap());
             }
         }
 
@@ -572,5 +787,92 @@ impl NetSegment {
                 Color32::from_rgba_unmultiplied(100, 100, 0, 100),
             ),
         );
+    }
+}
+
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ComponentAction {RotateUp, RotateDown, Remove, None}
+
+impl ComponentAction {
+    fn draw_rotation_arrow(
+        painter: &Painter,
+        center: Pos2,
+        radius: f32,
+        clockwise: bool,
+        stroke: Stroke,
+    ) {
+        let sweep_angle = if clockwise { 1.7 * PI } else { -1.7 * PI };
+        let start_angle = if clockwise {0.0} else  {PI };
+        let eps =if clockwise { 0.2 } else { -0.2 };
+
+        let num_segments = 30;
+        let mut points = Vec::with_capacity(num_segments + 1);
+
+        for i in 0..=num_segments {
+            let t = i as f32 / num_segments as f32;
+            let angle = start_angle + t * sweep_angle;
+            points.push(center + radius * Vec2::angled(angle));
+        }
+
+        painter.add(Shape::Path(PathShape {
+            points,
+            closed: false,
+            fill: Color32::TRANSPARENT,
+            stroke: PathStroke::new(stroke.width, stroke.color),
+        }));
+
+        let r_vec = radius * Vec2::angled(start_angle + sweep_angle - eps);
+        let p1 = center + r_vec + r_vec.normalized() * stroke.width;
+        let p2 = center + r_vec - r_vec.normalized() * stroke.width;
+        let p3 = if clockwise {
+            ((p2 - p1).rot90() + (p1.to_vec2() + p2.to_vec2()) / 2.0).to_pos2()
+        } else {
+            ((p1 - p2).rot90() + (p1.to_vec2() + p2.to_vec2()) / 2.0).to_pos2()
+        };
+
+        painter.add(Shape::convex_polygon(
+            vec![p1, p2, p3],
+            stroke.color,
+            Stroke::NONE,
+        ));
+    }
+
+    pub fn actions_grid(comp: &Component, state: &FieldState, n_actions: usize) -> Vec<Rect> {
+        let (w, _h) = comp.get_dimension();
+        let size = 50.0;
+        let pos = state.grid_to_screen(&comp.get_position()) + vec2(w as f32 * 0.5 * state.grid_size - n_actions as f32 * 0.5 * size, -size * 1.2);
+        (0..n_actions).map(|i| {
+            Rect::from_min_size( pos + vec2(size * i as f32, 0.0), vec2(size, size))
+        }).collect()
+    }
+
+    pub fn actions_rect(comp: &Component, state: &FieldState, n_actions: usize) -> Rect {
+        let (w, _h) = comp.get_dimension();
+        let size = 50.0;
+        let pos = state.grid_to_screen(&comp.get_position()) + vec2(w as f32 * 0.5 * state.grid_size - n_actions as f32 * 0.5 * size, -size * 1.2);
+        Rect::from_min_size(pos, vec2(size * n_actions as f32, size))
+    }
+
+    pub fn draw(&self, rect:&Rect, painter: &egui::Painter, selected: bool, visuals: &egui::Visuals) {
+        let stroke = if selected {
+            Stroke::new(rect.height() / 8.0, visuals.strong_text_color(),)
+        } else {
+            Stroke::new(rect.height() / 8.0, visuals.text_color())
+        };
+        match self {
+            Self::RotateDown => {
+                Self::draw_rotation_arrow(&painter, rect.center(), rect.height() * 0.3, false, stroke);
+            }
+            Self::RotateUp => {
+                Self::draw_rotation_arrow(&painter, rect.center(), rect.height() * 0.3, true, stroke);
+            }
+            Self::Remove => {
+                let scaled = rect.scale_from_center(0.6);
+                painter.line_segment([scaled.left_top(), scaled.right_bottom()], stroke);
+                painter.line_segment([scaled.left_bottom(), scaled.right_top()], stroke);
+            }
+            _ => {}
+        }
     }
 }

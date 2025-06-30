@@ -7,7 +7,7 @@ use rstar::{AABB, PointDistance, RTree, RTreeObject};
 
 use crate::{
     field::FieldState,
-    grid_db::{Component, Connection, GridPos, Net, NetSegment, grid_pos},
+    grid_db::{Component, GridPos, Net, NetSegment, grid_pos},
 }; // AABB = Axis-Aligned Bounding Box (прямоугольник)
 type Point = [i32; 2]; // Точка (x, y)
 
@@ -127,13 +127,8 @@ impl GridBD {
                         .get(&grid_pos(grid_hoverpos.x + i - 1, grid_hoverpos.y + j - 1))
                     {
                         if let Some(component) = self.components.get(&connection.component_id) {
-                            if let Some(con) = component.get_connection(connection.connection_id) {
-                                if con.is_hovered(
-                                    state,
-                                    &component.get_grid_rect(connection.component_id).min,
-                                ) {
-                                    return Some(connection.clone());
-                                }
+                            if component.is_connection_hovered(connection.connection_id, state) {
+                                return Some(connection.clone());
                             }
                         }
                     }
@@ -210,10 +205,7 @@ impl GridBD {
         for net_id in self.get_connected_nets(component_id) {
             self.remove_net(&net_id);
         }
-        println!(
-            "{}",
-            serde_json::to_string(&self.remove_component(component_id).unwrap()).unwrap()
-        );
+        self.remove_component(component_id);
     }
 
     pub fn get_hovered_segment(&self, state: &FieldState) -> Option<&NetSegment> {
@@ -227,18 +219,6 @@ impl GridBD {
             }
         }
         return None;
-    }
-
-    pub fn get_component_and_connection(
-        &self,
-        cp: &GridBDConnectionPoint,
-    ) -> Option<(&Component, Connection)> {
-        if let Some(comp) = self.components.get(&cp.component_id) {
-            if let Some(con) = comp.get_connection(cp.connection_id) {
-                return Some((comp, con));
-            }
-        }
-        None
     }
 
     pub fn get_visible_net_segments(&self, rect: &GridRect) -> Vec<&NetSegment> {
@@ -292,10 +272,7 @@ impl GridBD {
 
     pub fn dump_to_json(&self) -> Option<String> {
         let components: Vec<&Component> = self.components.values().collect();
-        match serde_json::to_string(&components) {
-            Ok(result) => Some(result),
-            _ => None
-        }
+        serde_json::to_string(&components).ok()
     }
 }
 
