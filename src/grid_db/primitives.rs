@@ -1,10 +1,9 @@
-use std::{ f32::consts::{FRAC_2_PI, FRAC_PI_2, PI}, ops::{Add, AddAssign}
+use std::{ f32::consts::{FRAC_PI_2, PI}, ops::{Add, AddAssign}
 };
 
 use egui::{
-    ahash::{HashMap, HashMapExt}, emath::TSTransform, epaint::{PathShape, PathStroke, TextShape, Vertex}, pos2, vec2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2
+    epaint::{PathShape, PathStroke, TextShape, Vertex}, vec2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2
 };
-use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
@@ -98,7 +97,7 @@ pub struct Port {
     pub name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Net {
     pub start_point: GridBDConnectionPoint,
     pub end_point: GridBDConnectionPoint,
@@ -182,15 +181,6 @@ pub enum Rotation {
 }
 
 impl Rotation {
-    fn to_radians(&self) -> f32 {
-        match self {
-            Rotation::ROT0 => 0.0,
-            Rotation::ROT90 => FRAC_PI_2,
-            Rotation::ROT180 => PI,
-            Rotation::ROT270 => PI + FRAC_PI_2,
-        }
-    }
-
     fn rotated_up(&self) -> Rotation {
         match self {
             Rotation::ROT0      => Rotation::ROT90,
@@ -260,27 +250,24 @@ pub struct AndGate {
 
 impl AndGate {
     const ACTIONS:&'static [ComponentAction] = &[ComponentAction::RotateDown, ComponentAction::RotateUp, ComponentAction::Remove];
+    const CONNECTION_SCALE:f32 = 0.1;
 
-    fn get_dimension(&self) -> (i32, i32) {
-        let (w, h) = if self.n_inputs % 2 == 0 {
+    fn get_dimension_raw(&self) -> (i32, i32) {
+        if self.n_inputs % 2 == 0 {
             (2, (2 * self.n_inputs - 1) as i32)
         } else {
             (2, self.n_inputs as i32)
-        };
+        }
+    }
+
+    fn get_dimension(&self) -> (i32, i32) {
+        let (w, h) = self.get_dimension_raw();
         match self.rotation {
             Rotation::ROT0 => (w, h),
             Rotation::ROT90 => (h, w),
             Rotation::ROT180 => (w, h),
             Rotation::ROT270 => (h, w),
         }
-    }
-
-    fn get_connection_cells(&self) -> Vec<ConnectionCell> {
-        (0..self.n_inputs).map(|i| {
-        ConnectionCell {
-            cell : self.pos + grid_pos(0, i as i32),
-            inner_id: i as Id
-        }}).collect()
     }
 
     fn apply_rotation(&self, points: Vec<Pos2>, state: &FieldState) -> Vec<Pos2> {
@@ -300,25 +287,71 @@ impl AndGate {
         let dim = self.get_dimension();
         let rot_ofs = match self.rotation {
             Rotation::ROT0   => grid_pos(0, 0),
-            Rotation::ROT90  => grid_pos(dim.0, 0),
-            Rotation::ROT180 => grid_pos(dim.0, dim.1),
-            Rotation::ROT270 => grid_pos(0, dim.1),
+            Rotation::ROT90  => grid_pos(dim.0-1, 0),
+            Rotation::ROT180 => grid_pos(dim.0-1, dim.1-1),
+            Rotation::ROT270 => grid_pos(0, dim.1-1),
         };
         points.iter().map(|p| {self.rotation.rotate_grid_pos(*p, rot_center) + rot_ofs}).collect()
     }
 
-    fn get_connection_cells_raw(&self) -> Vec<GridPos> {
-        if self.n_inputs % 2 == 0 {
-            (0..self.n_inputs).map(|i: u32| {self.pos + grid_pos(0, i as i32)}).collect()
+    fn get_connection_dock_cell(&self, connection_id: Id) -> Option<GridPos> {
+        let raw_dim = self.get_dimension_raw();
+        if connection_id < self.n_inputs as Id + 1 {
+            let pos = if connection_id < self.n_inputs as Id {
+                if self.n_inputs % 2 == 0 {
+                    self.pos + grid_pos(-1, 2 * connection_id as i32)
+                } else {
+                    self.pos + grid_pos(-1, connection_id as i32)
+                }
+            } else {
+                self.pos + grid_pos(raw_dim.0, raw_dim.1 / 2)
+            };
+            Some(self.apply_rotation_grid_pos(vec![pos])[0])
         } else {
-            (0..self.n_inputs).map(|i: u32| {self.pos + grid_pos(0, 2 * i as i32)}).collect()
+            None
         }
     }
 
-    fn get_connections_cells(&self) -> Vec<ConnectionCell> {
-        self.apply_rotation_grid_pos(self.get_connection_cells_raw()).iter().enumerate().map(|(i, p)| {
-            ConnectionCell { cell : *p, inner_id: i}
-        }).collect()
+    fn get_connection_position(&self, connection_id: Id, state: &FieldState) -> Option<Pos2> {
+        let screen_pos = state.grid_to_screen(&self.pos);
+        let (w, h) = self.get_dimension_raw();
+        if connection_id < self.n_inputs as Id + 1 {
+            let pos = if connection_id < self.n_inputs as Id {
+                if self.n_inputs % 2 == 0 {
+                    screen_pos + vec2(0.0, ((2 * connection_id) as f32 + 0.5) * state.grid_size)
+                } else {
+                    screen_pos + vec2(0.0, (connection_id as f32 + 0.5) * state.grid_size)
+                }
+            } else {
+                screen_pos + vec2(w as f32 * state.grid_size, h as f32 * state.grid_size / 2.0)
+            };
+            Some(self.apply_rotation(vec![pos], state)[0])
+        } else {
+            None
+        }
+    }
+
+    pub fn is_connection_hovered(&self, connection_id: Id, state: &FieldState) -> bool {
+        if let Some(cursor_pos) = state.cursor_pos {
+            if let Some(con_pos) = self.get_connection_position(connection_id, state) {
+                let d = con_pos.distance(cursor_pos);
+                d <= state.grid_size * Self::CONNECTION_SCALE * 2.0
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
+    pub fn highlight_connection(&self, connection_id: Id, state: &FieldState, painter: &Painter) {
+        if let Some(p) = self.get_connection_position(connection_id, state) {
+            painter.circle_filled(
+                p,
+                state.grid_size * Self::CONNECTION_SCALE * 3.0,
+                Color32::from_rgba_unmultiplied(100, 100, 0, 100),
+            );
+        }
     }
 
     fn display(&self, state: &FieldState, painter: &Painter) {
@@ -352,10 +385,10 @@ impl AndGate {
 
         let inc = if self.n_inputs % 2 == 0 {2} else {1};
         let mut port_points: Vec<Pos2> = (0..self.n_inputs).map(|i|{pos + vec2(0.0, (i * inc) as f32 * state.grid_size + state.grid_size/2.0)}).collect();
-        port_points.push(pos + vec2(2.0 * state.grid_size, height / 2.0));
+        port_points.push(pos + vec2(self.get_dimension_raw().0 as f32 * state.grid_size, height / 2.0));
         let port_points = self.apply_rotation(port_points, state);
         port_points.iter().for_each(|p| {
-            painter.circle_filled(p.clone(), state.grid_size/10.0, Color32::DARK_GRAY);
+            painter.circle_filled(p.clone(), state.grid_size * Self::CONNECTION_SCALE, Color32::DARK_GRAY);
         });
     }
 }
@@ -365,20 +398,6 @@ impl AndGate {
 pub enum Component {
     Unit(Unit),
     AndGate(AndGate),
-}
-
-pub struct ConnectionCell {
-    pub(crate) cell: GridPos,
-    pub(crate) inner_id: Id,
-}
-
-impl ConnectionCell {
-    pub(crate) fn to_comp_connection(&self, component_id: usize) -> GridBDConnectionPoint {
-        GridBDConnectionPoint {
-            component_id: component_id,
-            connection_id: self.inner_id,
-        }
-    }
 }
 
 impl Component {
@@ -405,18 +424,16 @@ impl Component {
         }
     }
 
-    pub fn get_connection_cells(&self) -> Vec<ConnectionCell> {
+    pub fn get_connection_dock_cells(&self) -> Vec<GridPos> {
         match self {
             Component::Unit(unit) => unit
                 .ports
                 .iter()
                 .enumerate()
-                .map(|(i, p)| ConnectionCell {
-                    cell: grid_pos(unit.pos.x + p.cell.x, unit.pos.y + p.cell.y),
-                    inner_id: i,
-                })
+                .map(|(_i, p)| p.get_dock_cell(&unit.pos))
                 .collect(),
-            Component::AndGate(g) => g.get_connection_cells()
+            Component::AndGate(g) => (0..=g.n_inputs as Id)
+                .map(|i| g.get_connection_dock_cell(i).unwrap()).collect()
         }
     }
 
@@ -470,26 +487,13 @@ impl Component {
         return false;
     }
 
-    pub fn is_rotatable(&self) -> bool {
-        match self {
-            Self::AndGate(_g) => true,
-            Self::Unit(_u) => false
-        }
-    }
-
-    pub fn rotate_up(&mut self) {
+    pub fn rotate(&mut self, dir: RotationDirection) {
         match self {
             Self::AndGate(g) => {
-                g.rotation = g.rotation.rotated_up()
-            },
-            _ => {}
-        }
-    }
-
-    pub fn rotate_down(&mut self) {
-        match self {
-            Self::AndGate(g) => {
-                g.rotation = g.rotation.rotated_down()
+                match dir {
+                    RotationDirection::Down => g.rotation = g.rotation.rotated_down(),
+                    RotationDirection::Up   => g.rotation = g.rotation.rotated_up(),
+                }
             },
             _ => {}
         }
@@ -509,7 +513,7 @@ impl Component {
                     p.highlight(state, &unit.pos, painter);
                 }
             },
-            Component::AndGate(g) => {}, // TODO
+            Component::AndGate(g) => {g.highlight_connection(connection_id, state, painter);}, // TODO
         }
     }
 
@@ -519,7 +523,7 @@ impl Component {
                 let p= unit.ports.get(connection_id)?;
                 Some(p.center(&unit.pos, state))
             },
-            Component::AndGate(g) => None, // TODO
+            Component::AndGate(g) => g.get_connection_position(connection_id, state),
         }
     }
 
@@ -529,14 +533,14 @@ impl Component {
                 let p= unit.ports.get(connection_id)?;
                 Some(p.get_dock_cell(&unit.pos))
             },
-            Component::AndGate(g) => None, // TODO
+            Component::AndGate(g) => g.get_connection_dock_cell(connection_id),
         }
     }
 
     pub fn is_connection_hovered(&self, connection_id: Id, state: &FieldState) -> bool{
         match self {
             Component::Unit(unit) => unit.ports.get(connection_id).is_some_and(|p| {p.is_hovered(state, &unit.pos)}),
-            Component::AndGate(g) => false, // TODO
+            Component::AndGate(g) => g.is_connection_hovered(connection_id, state),
         }
     }
 }
@@ -876,3 +880,5 @@ impl ComponentAction {
         }
     }
 }
+
+pub enum RotationDirection {Up, Down}

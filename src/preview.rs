@@ -1,11 +1,12 @@
-use egui::{Align2, CursorIcon, LayerId, Pos2, Rect, Sense, Vec2, vec2};
+use egui::{CursorIcon, LayerId, Pos2, Rect, Sense, Vec2, vec2};
 use once_cell::sync::Lazy;
 
-use crate::{component_lib::{AND9, AND2, AND3, EXAMPLE_UNIT}, field::Field, grid_db::{AndGate, Component}};
+use crate::{component_lib::{AND9, AND2, AND3, EXAMPLE_UNIT}, field::Field, grid_db::{Component}};
 
-pub struct PreviewWindow {
+pub struct PreviewPanel {
     drag_vec: Vec2,
-    showcase: Vec<&'static Lazy<Component>>
+    showcase: Vec<&'static Lazy<Component>>,
+    pub is_expanded: bool
 }
 
 pub enum DragComponentResponse {
@@ -20,9 +21,10 @@ impl Default for DragComponentResponse {
     }
 }
 
-impl PreviewWindow {
+impl PreviewPanel {
     pub fn new() -> Self {
         Self {
+            is_expanded: true,
             drag_vec: vec2(0.0, 0.0),
             showcase: vec![
                 &EXAMPLE_UNIT,
@@ -102,20 +104,27 @@ impl PreviewWindow {
         field_scale: f32,
     ) -> DragComponentResponse {
         let mut drag_response = DragComponentResponse::None;
+        egui::SidePanel::left("left_panel").resizable(true).show_animated(ctx, self.is_expanded,  |ui| {
+            egui::ScrollArea::vertical().max_width(ui.available_width()).show(ui, |ui| {
+                for i in 0..self.showcase.len() {
+                    let resp = self.component_preview(ui, foreground, field_scale, i);
+                    match resp {
+                        DragComponentResponse::None => {},
+                        _ => {drag_response = resp}
+                    }
+                }
+            });
+        });
+
+
+        /*
         egui::Window::new("Компоненты")
             .pivot(Align2::CENTER_BOTTOM)
             .movable(true)
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical().max_width(ui.available_width()).show(ui, |ui| {
-                    for i in 0..self.showcase.len() {
-                        let resp = self.component_preview(ui, foreground, field_scale, i);
-                        match resp {
-                            DragComponentResponse::None => {},
-                            _ => {drag_response = resp}
-                        }
-                    }
-                });
-            });
+
+        }); */
+
         return drag_response;
     }
 }

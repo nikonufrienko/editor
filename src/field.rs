@@ -1,17 +1,18 @@
 use egui::{
-    accesskit::Action, epaint::{text::cursor, PathShape, PathStroke}, pos2, vec2, Color32, CursorIcon, FontId, LayerId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui, Vec2
+    pos2, vec2, Color32, CursorIcon, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui, Vec2
 };
-use std::{f32::consts::{FRAC_2_PI, PI}, sync::Arc};
+use std::{sync::Arc};
 
 use crate::{
     grid_db::{
-        self, grid_pos, grid_rect, Component, ComponentAction, ConnectionAlign, GridBD, GridBDConnectionPoint, GridPos, Id, Net, Port, Unit
+       grid_pos, grid_rect, Component, ComponentAction, GridBD, GridBDConnectionPoint, GridPos, Id, Net, RotationDirection
     },
-    preview_window::DragComponentResponse,
+    preview::DragComponentResponse,
 };
 
+#[derive(PartialEq)]
 pub enum GridType {
-    Points,
+    Dots,
     Cells,
 }
 
@@ -108,56 +109,7 @@ impl Field {
 
     pub fn new() -> Self {
         let scale = (Self::MAX_SCALE / 10.0).max(Self::MIN_SCALE);
-        let mut db = GridBD::new();
-
-        for i in 0..100 {
-            for j in 0..100 {
-                let unit = Unit {
-                    name: "АМОГУС".to_owned(),
-                    pos: grid_pos(10 * i, 10 * j),
-                    width: 5,
-                    height: 6,
-                    ports: vec![
-                        Port {
-                            cell: grid_pos(0, 3),
-                            align: ConnectionAlign::LEFT,
-                            name: "vld".to_owned(),
-                        },
-                        Port {
-                            cell: grid_pos(0, 4),
-                            align: ConnectionAlign::LEFT,
-                            name: "data1".to_owned(),
-                        },
-                        Port {
-                            cell: grid_pos(0, 5),
-                            align: ConnectionAlign::LEFT,
-                            name: "data2".to_owned(),
-                        },
-                        Port {
-                            cell: grid_pos(4, 1),
-                            align: ConnectionAlign::RIGHT,
-                            name: "vld".to_owned(),
-                        },
-                        Port {
-                            cell: grid_pos(4, 2),
-                            align: ConnectionAlign::RIGHT,
-                            name: "data1".to_owned(),
-                        },
-                        Port {
-                            cell: grid_pos(4, 3),
-                            align: ConnectionAlign::RIGHT,
-                            name: "data2".to_owned(),
-                        },
-                        Port {
-                            cell: grid_pos(2, 0),
-                            align: ConnectionAlign::TOP,
-                            name: "info".to_owned(),
-                        },
-                    ],
-                };
-                db.push_component(Component::Unit(unit));
-            }
-        }
+        let db = GridBD::new();
 
         Self {
             state: FieldState {
@@ -182,7 +134,7 @@ impl Field {
         }
     }
 
-    fn display_grid(&self, ui: &mut egui::Ui, response: &Response) {
+    fn display_grid(&self, ui: &mut egui::Ui) {
         let delta_x = if self.state.offset.x >= 0.0 {
             self.state.offset.x % self.state.grid_size
         } else {
@@ -227,7 +179,7 @@ impl Field {
                     }
                 }
             }
-            GridType::Points => {
+            GridType::Dots => {
                 if Self::POINT_MIN_SCALE < self.state.scale {
                     let vertical_lines =
                         ((self.state.rect.width() - delta_x) / self.state.grid_size) as i32 + 1;
@@ -250,20 +202,6 @@ impl Field {
                 }
             }
         }
-
-        /*
-        if response.hovered() {
-            if let Some(pos) = response.hover_pos() {
-                let grid_cell_pos = self.state.screen_to_grid(pos);
-                shapes.push(filled_cells(
-                    &self.state,
-                    &grid_cell_pos,
-                    1,
-                    1,
-                    Color32::from_rgba_unmultiplied(255, 255, 255, 50),
-                ));
-            }
-        } */
 
         shapes.push(Shape::rect_stroke(
             self.state.rect,
@@ -334,7 +272,7 @@ impl Field {
         self.state.rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(self.state.rect, Sense::drag().union(Sense::all()));
         self.refresh(ui, &response);
-        self.display_grid(ui, &response);
+        self.display_grid(ui);
         let grid_rect = grid_rect(
             0,
             self.state.screen_to_grid(self.state.rect.min),
@@ -383,26 +321,20 @@ struct ConnectionBuilder {
 }
 
 fn simplify_path(path: Vec<GridPos>) -> Vec<GridPos> {
-    let mut cleaned = Vec::new();
-    if path.is_empty() {
-        return cleaned;
-    }
-
+    let mut cleaned = Vec::with_capacity(path.len());
     cleaned.push(path[0]);
-    for &point in &path[1..] {
-        if point != *cleaned.last().unwrap() {
+    for (i, &point) in path.iter().enumerate().skip(1) {
+        if point != *cleaned.last().unwrap() || i == path.len() - 1 {
             cleaned.push(point);
         }
     }
 
-    if cleaned.len() < 3 {
+    if cleaned.len() <= 2 {
         return cleaned;
     }
 
-    let mut simplified = Vec::new();
-    simplified.push(cleaned[0]);
-
-    for i in 1..cleaned.len() - 1 {
+    let mut i = 1;
+    while i < cleaned.len().saturating_sub(1) {
         let prev = cleaned[i - 1];
         let curr = cleaned[i];
         let next = cleaned[i + 1];
@@ -410,13 +342,14 @@ fn simplify_path(path: Vec<GridPos>) -> Vec<GridPos> {
         let same_x = prev.x == curr.x && curr.x == next.x;
         let same_y = prev.y == curr.y && curr.y == next.y;
 
-        if !(same_x || same_y) {
-            simplified.push(curr);
+        if same_x || same_y {
+            cleaned.remove(i);
+        } else {
+            i += 1;
         }
     }
 
-    simplified.push(*cleaned.last().unwrap());
-    simplified
+    cleaned
 }
 
 impl ConnectionBuilder {
@@ -425,20 +358,18 @@ impl ConnectionBuilder {
         bd: &GridBD,
         target: &GridBDConnectionPoint,
     ) -> Option<Vec<GridPos>> {
-        if let Some(cp) = &self.point {
-            let comp1 = bd.get_component(&cp.component_id).unwrap();
-            let mut result = vec![comp1.get_connection_dock_cell(cp.connection_id).unwrap()];
-            self.anchors.iter().for_each(|a| {
-                result.extend(bd.find_net_path(result.last().unwrap().clone(), a.clone())); // !!!
-                result.push(a.clone());
-            });
-            let target_comp = bd.get_component(&target.component_id).unwrap();
-            let target_pos = target_comp.get_connection_dock_cell(target.connection_id).unwrap();
-            result.extend(bd.find_net_path(result.last().unwrap().clone(), target_pos.clone())); // !!!
-            result.push(target_pos);
-            return Some(simplify_path(result));
-        }
-        None
+        let cp = &self.point?;
+        let comp1 = bd.get_component(&cp.component_id)?;
+        let mut result = vec![comp1.get_connection_dock_cell(cp.connection_id).unwrap()];
+        self.anchors.iter().for_each(|a| {
+            result.extend(bd.find_net_path(result.last().unwrap().clone(), a.clone())); // !!!
+            result.push(a.clone());
+        });
+        let target_comp = bd.get_component(&target.component_id).unwrap();
+        let target_pos = target_comp.get_connection_dock_cell(target.connection_id).unwrap();
+        result.extend(bd.find_net_path(result.last().unwrap().clone(), target_pos.clone())); // !!!
+        result.push(target_pos);
+        return Some(simplify_path(result));
     }
 
     fn new() -> Self {
@@ -615,7 +546,7 @@ impl DragManager {
         }
     }
 
-    fn move_net(&self, cursor_grid_pos: &GridPos, bd: &mut GridBD) {
+    fn move_net_segment(&self, cursor_grid_pos: &GridPos, bd: &mut GridBD) {
         match self.state {
             DragState::NetDragged { net_id, segment_id } => {
                 let GridPos { x, y } = cursor_grid_pos;
@@ -642,96 +573,128 @@ impl DragManager {
         }
     }
 
-    fn move_component(&self, unit_id: &Id, bd: &mut GridBD, new_pos: GridPos) {
-        let comp = bd.get_component(unit_id).unwrap();
-        let comp_id = unit_id.clone();
+
+    fn move_net_connection_point(comp_id: Id, net_id: Id, bd: &mut GridBD, delta_x: i32, delta_y: i32) {
+        let mut net = bd.remove_net(&net_id).unwrap();
+        let pts_len = net.points.len();
+
+        if pts_len >= 2 {
+            if comp_id == net.start_point.component_id
+                && comp_id == net.end_point.component_id
+            {
+                // Move all points if component is connected to both ends
+                for i in 0..net.points.len() {
+                    net.points[i] = net.points[i] + grid_pos(delta_x, delta_y);
+                }
+            } else if comp_id == net.start_point.component_id {
+                // Handle component connected to start of net
+                if net.points[0].y == net.points[1].y {
+                    // horizontal segment
+                    if net.points.len() >= 4 {
+                        // Has another vertical segment that can be moved
+                        net.points[0] += grid_pos(delta_x, delta_y);
+                        net.points[1] += grid_pos(delta_x, delta_y);
+                        net.points[2] += grid_pos(delta_x, 0);
+                    } else {
+                        net.points[0].x += delta_x;
+                        if delta_y != 0 {
+                            net.points.insert(0, net.points[0] + grid_pos(0, delta_y));
+                        }
+                    }
+                } else {
+                    // vertical segment
+                    if net.points.len() >= 4 {
+                        // Has another horizontal segment that can be moved
+                        net.points[0] += grid_pos(delta_x, delta_y);
+                        net.points[1] += grid_pos(delta_x, delta_y);
+                        net.points[2] += grid_pos(0, delta_y);
+                    } else {
+                        net.points[0].y += delta_y; // Fixed: change Y instead of X
+                        if delta_x != 0 {
+                            net.points.insert(0, net.points[0] + grid_pos(delta_x, 0));
+                        }
+                    }
+                }
+            } else if comp_id == net.end_point.component_id {
+                // Handle component connected to end of net
+                if net.points[pts_len - 1].y == net.points[pts_len - 2].y {
+                    // horizontal segment
+                    if net.points.len() >= 4 {
+                        net.points[pts_len - 1] += grid_pos(delta_x, delta_y);
+                        net.points[pts_len - 2] += grid_pos(delta_x, delta_y);
+                        net.points[pts_len - 3] += grid_pos(delta_x, 0);
+                    } else {
+                        net.points[pts_len - 1].x += delta_x;
+                        if delta_y != 0 {
+                            net.points
+                                .push(net.points[pts_len - 1] + grid_pos(0, delta_y));
+                        }
+                    }
+                } else {
+                    // vertical segment
+                    if net.points.len() >= 4 {
+                        net.points[pts_len - 1] += grid_pos(delta_x, delta_y);
+                        net.points[pts_len - 2] += grid_pos(delta_x, delta_y);
+                        net.points[pts_len - 3] += grid_pos(0, delta_y);
+                    } else {
+                        net.points[pts_len - 1].y += delta_y;
+                        if delta_x != 0 {
+                            net.points
+                                .push(net.points[pts_len - 1] + grid_pos(delta_x, 0));
+                        }
+                    }
+                }
+            }
+        }
+
+        net.points = simplify_path(net.points);
+        bd.add_net(net);
+    }
+
+    fn move_component(&self, comp_id: Id, bd: &mut GridBD, new_pos: GridPos) {
+        let comp = bd.get_component(&comp_id).unwrap();
 
         if bd.is_available_location(new_pos, comp.get_dimension(), comp_id) {
-            // rebuild
             let old_pos = comp.get_position();
             let delta_y = new_pos.y - old_pos.y;
             let delta_x = new_pos.x - old_pos.x;
 
             for net_id in bd.get_connected_nets(&comp_id) {
-                let mut net = bd.remove_net(&net_id).unwrap();
-                let pts_len = net.points.len();
-
-                if pts_len >= 2 {
-                    if comp_id == net.start_point.component_id
-                        && comp_id == net.end_point.component_id
-                    {
-                        // Move all points if component is connected to both ends
-                        for i in 0..net.points.len() {
-                            net.points[i] = net.points[i] + grid_pos(delta_x, delta_y);
-                        }
-                    } else if comp_id == net.start_point.component_id {
-                        // Handle component connected to start of net
-                        if net.points[0].y == net.points[1].y {
-                            // horizontal segment
-                            if net.points.len() >= 4 {
-                                // Has another vertical segment that can be moved
-                                net.points[0] += grid_pos(delta_x, delta_y);
-                                net.points[1] += grid_pos(delta_x, delta_y);
-                                net.points[2] += grid_pos(delta_x, 0);
-                            } else {
-                                net.points[0].x += delta_x;
-                                if delta_y != 0 {
-                                    net.points.insert(0, net.points[0] + grid_pos(0, delta_y));
-                                }
-                            }
-                        } else {
-                            // vertical segment
-                            if net.points.len() >= 4 {
-                                // Has another horizontal segment that can be moved
-                                net.points[0] += grid_pos(delta_x, delta_y);
-                                net.points[1] += grid_pos(delta_x, delta_y);
-                                net.points[2] += grid_pos(0, delta_y);
-                            } else {
-                                net.points[0].y += delta_y; // Fixed: change Y instead of X
-                                if delta_x != 0 {
-                                    net.points.insert(0, net.points[0] + grid_pos(delta_x, 0));
-                                }
-                            }
-                        }
-                    } else if comp_id == net.end_point.component_id {
-                        // Handle component connected to end of net
-                        if net.points[pts_len - 1].y == net.points[pts_len - 2].y {
-                            // horizontal segment
-                            if net.points.len() >= 4 {
-                                net.points[pts_len - 1] += grid_pos(delta_x, delta_y);
-                                net.points[pts_len - 2] += grid_pos(delta_x, delta_y);
-                                net.points[pts_len - 3] += grid_pos(delta_x, 0);
-                            } else {
-                                net.points[pts_len - 1].x += delta_x;
-                                if delta_y != 0 {
-                                    net.points
-                                        .push(net.points[pts_len - 1] + grid_pos(0, delta_y));
-                                }
-                            }
-                        } else {
-                            // vertical segment
-                            if net.points.len() >= 4 {
-                                net.points[pts_len - 1] += grid_pos(delta_x, delta_y);
-                                net.points[pts_len - 2] += grid_pos(delta_x, delta_y);
-                                net.points[pts_len - 3] += grid_pos(0, delta_y);
-                            } else {
-                                net.points[pts_len - 1].y += delta_y;
-                                if delta_x != 0 {
-                                    net.points
-                                        .push(net.points[pts_len - 1] + grid_pos(delta_x, 0));
-                                }
-                            }
-                        }
-                    }
-                }
-
-                net.points = simplify_path(net.points);
-                bd.add_net(net);
+                Self::move_net_connection_point(comp_id, net_id, bd, delta_x, delta_y);
             }
 
-            let mut comp = bd.remove_component(unit_id).unwrap();
+            let mut comp = bd.remove_component(&comp_id).unwrap();
             comp.set_pos(new_pos);
             bd.insert_component(comp_id, comp);
+        }
+    }
+
+    fn rotate_component(&self, comp_id: Id, bd: &mut GridBD, dir: RotationDirection) {
+        let comp = bd.get_component(&comp_id).unwrap().clone();
+        let mut rotated_comp = comp.clone();
+        rotated_comp.rotate(dir);
+
+        if bd.is_available_location(rotated_comp.get_position(), rotated_comp.get_dimension(), comp_id) {
+            let nets_ids: Vec<Id> = bd.get_connected_nets(&comp_id).iter().map(|it| {*it}).collect();
+            let connections_ids: Vec<Id> = nets_ids.iter().map(|it| {
+                let net =  bd.nets.get(it).unwrap();
+                if net.end_point.component_id == comp_id {
+                    net.end_point.connection_id
+                } else {
+                    net.start_point.connection_id
+                }
+            }).collect();
+
+            for (i, net_id) in nets_ids.iter().enumerate() {
+                let old_pos = comp.get_connection_dock_cell(connections_ids[i]).unwrap();
+                let new_pos = rotated_comp.get_connection_dock_cell(connections_ids[i]).unwrap();
+                let delta_y = new_pos.y - old_pos.y;
+                let delta_x = new_pos.x - old_pos.x;
+                Self::move_net_connection_point(comp_id, *net_id, bd, delta_x, delta_y);
+            }
+
+            bd.remove_component(&comp_id).unwrap();
+            bd.insert_component(comp_id, rotated_comp);
         }
     }
 
@@ -765,7 +728,7 @@ impl DragManager {
                     } else {
                         self.drag_delta = vec2(0.0, 0.0);
                         //bd.remove_net(&net_id);
-                        self.move_net(&state.screen_to_grid(hover_pos), bd);
+                        self.move_net_segment(&state.screen_to_grid(hover_pos), bd);
                         self.state = DragState::Idle
                     }
                 }
@@ -802,15 +765,11 @@ impl DragManager {
                 if response.clicked() && action != ComponentAction::None {
                     match action {
                         ComponentAction::RotateUp => {
-                            let mut comp = bd.remove_component(&id).unwrap();
-                            comp.rotate_up();
-                            bd.push_component(comp);
+                            self.rotate_component(id, bd, RotationDirection::Up);
                             self.state = DragState::Idle;
                         },
                         ComponentAction::RotateDown => {
-                            let mut comp = bd.remove_component(&id).unwrap();
-                            comp.rotate_down();
-                            bd.push_component(comp);
+                            self.rotate_component(id, bd, RotationDirection::Down);
                             self.state = DragState::Idle;
                         },
                         ComponentAction::Remove => {
@@ -847,7 +806,7 @@ impl DragManager {
                         .output_mut(|o| o.cursor_icon = CursorIcon::Grabbing);
                 } else {
                     if let Some(pos) = state.cursor_pos {
-                        self.move_component(&id, bd, state.screen_to_grid(pos - grab_ofs));
+                        self.move_component(id, bd, state.screen_to_grid(pos - grab_ofs));
                     }
                     self.state = DragState::Idle;
                 }

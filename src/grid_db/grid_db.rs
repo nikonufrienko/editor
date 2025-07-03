@@ -1,13 +1,13 @@
 use std::{
-    collections::{HashMap, HashSet},
-    i32, usize,
+    collections::{HashMap, HashSet}, i32, usize
 };
 
 use rstar::{AABB, PointDistance, RTree, RTreeObject};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     field::FieldState,
-    grid_db::{Component, GridPos, Net, NetSegment, grid_pos},
+    grid_db::{grid_pos, Component, GridPos, Net, NetSegment},
 }; // AABB = Axis-Aligned Bounding Box (прямоугольник)
 type Point = [i32; 2]; // Точка (x, y)
 
@@ -62,10 +62,11 @@ pub fn grid_rect(id: usize, min: GridPos, max: GridPos) -> GridRect {
     return GridRect { id, min, max };
 }
 
+#[derive(Default)]
 pub struct GridBD {
     components: HashMap<usize, Component>,
     tree: RTree<GridRect>,
-    connections: HashMap<GridPos, GridBDConnectionPoint>,
+    connections: HashMap<GridPos, HashSet<GridBDConnectionPoint>>, // HashSet<GridBDConnectionPoint> --> Vec<GridBDConnectionPoint> ???
     pub nets: HashMap<usize, Net>,
     connected_nets: HashMap<GridBDConnectionPoint, HashSet<Id>>,
     net_tree: RTree<NetSegment>,
@@ -89,8 +90,12 @@ impl GridBD {
 
     pub fn insert_component(&mut self, id: Id, component: Component) {
         let rect: GridRect = component.get_grid_rect(id);
-        component.get_connection_cells().iter().for_each(|c| {
-            self.connections.insert(c.cell, c.to_comp_connection(id));
+        component.get_connection_dock_cells().iter().enumerate().for_each(|(i, cell)| {
+            if let Some(set) = self.connections.get_mut(cell) {
+                set.insert(GridBDConnectionPoint {component_id: id, connection_id: i});
+            } else {
+                self.connections.insert(*cell, HashSet::from([GridBDConnectionPoint {component_id: id, connection_id: i}]));
+            }
         });
         self.components.insert(rect.id, component);
         self.tree.insert(rect);
@@ -102,17 +107,20 @@ impl GridBD {
     }
 
     pub fn remove_component(&mut self, id: &Id) -> Option<Component> {
-        if let Some(component) = self.components.get(&id) {
-            component.get_connection_cells().iter().for_each(|c| {
-                if let Some(connection) = self.connections.get(&c.cell) {
-                    if connection.component_id == *id {
-                        self.connections.remove(&c.cell);
+        let component = self.components.get(&id)?;
+        for cell in component.get_connection_dock_cells() {
+            if let Some(connections_set) = self.connections.get_mut(&cell) {
+                if let Some(connection) = connections_set.iter().find(|it|{it.component_id == *id}).cloned() {
+                    connections_set.remove(&connection);
+                    if connections_set.is_empty() {
+                        self.connections.remove(&cell);
                     }
                 }
-                self.connections.insert(c.cell, c.to_comp_connection(*id));
-            });
-            self.tree.remove(&component.get_grid_rect(*id));
+            }
+            //self.connections.insert(*cell, GridBDConnectionPoint {component_id: *id, connection_id: i}); // ?????????
         }
+        self.tree.remove(&component.get_grid_rect(*id));
+
         return self.components.remove(&id);
     }
 
@@ -122,13 +130,15 @@ impl GridBD {
             // TODO: Simplify it (HOW??)
             for i in 0..3 {
                 for j in 0..3 {
-                    if let Some(connection) = self
+                    if let Some(connections) = self
                         .connections
                         .get(&grid_pos(grid_hoverpos.x + i - 1, grid_hoverpos.y + j - 1))
                     {
-                        if let Some(component) = self.components.get(&connection.component_id) {
-                            if component.is_connection_hovered(connection.connection_id, state) {
-                                return Some(connection.clone());
+                        for connection in connections {
+                            if let Some(component) = self.components.get(&connection.component_id) {
+                                if component.is_connection_hovered(connection.connection_id, state) {
+                                    return Some(connection.clone());
+                                }
                             }
                         }
                     }
@@ -247,10 +257,10 @@ impl GridBD {
     pub fn get_connected_nets(&self, component_id: &Id) -> HashSet<Id> {
         let mut result = HashSet::new();
         if let Some(comp) = self.get_component(component_id) {
-            comp.get_connection_cells().iter().for_each(|cell| {
+            comp.get_connection_dock_cells().iter().enumerate().for_each(|(inner_id, _cell)| { // TODO: simplify it
                 if let Some(set) = self
                     .connected_nets
-                    .get(&cell.to_comp_connection(*component_id))
+                    .get(&&GridBDConnectionPoint { component_id: *component_id, connection_id: inner_id } )
                 {
                     result.extend(set);
                 }
@@ -271,12 +281,32 @@ impl GridBD {
     }
 
     pub fn dump_to_json(&self) -> Option<String> {
-        let components: Vec<&Component> = self.components.values().collect();
-        serde_json::to_string(&components).ok()
+        serde_json::to_string(&GridBdDump{
+            components: self.components.clone(),
+            nets: self.nets.clone(),
+        }).ok()
+    }
+
+    pub fn load_from_json(json: String) -> Result<Self, serde_json::Error> {
+        let dump: GridBdDump = serde_json::from_str(&json)?;
+        let mut result =  Self::new();
+        for (_i, component) in dump.components {
+            result.push_component(component);
+        }
+        for (_i, net) in dump.nets {
+            result.add_net(net);
+        }
+        Ok(result)
     }
 }
 
-#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+#[derive(Serialize, Deserialize)]
+struct GridBdDump {
+    components: HashMap<Id, Component>,
+    nets: HashMap<Id, Net>
+}
+
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GridBDConnectionPoint {
     pub component_id: Id,
     pub connection_id: Id,
