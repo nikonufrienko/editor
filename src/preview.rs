@@ -1,7 +1,7 @@
 use egui::{CursorIcon, LayerId, Pos2, Rect, Sense, Vec2, vec2};
 use once_cell::sync::Lazy;
 
-use crate::{component_lib::{AND9, AND2, AND3, EXAMPLE_UNIT}, field::Field, grid_db::{Component}};
+use crate::{component_lib::{AND9, AND2, AND3, EXAMPLE_UNIT}, field::Field, grid_db::Component};
 
 pub struct PreviewPanel {
     drag_vec: Vec2,
