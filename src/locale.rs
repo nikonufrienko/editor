@@ -19,6 +19,7 @@ pub struct Locale {
     pub file_load_error: &'static str,
     pub file_wrong_format: &'static str,
     pub file_hovered_messege: &'static str,
+    pub common_components: &'static str,
 }
 
 pub const RU_LOCALE : Locale = Locale {
@@ -37,7 +38,8 @@ pub const RU_LOCALE : Locale = Locale {
     opening_file:       "Открытие файла...",
     file_load_error:    "Ошибка при открытии файла",
     file_wrong_format:  "Неверный формат файла",
-    file_hovered_messege: "А ну давай это сюда"
+    file_hovered_messege: "А ну давай это сюда",
+    common_components: "Общие",
 };
 
 
@@ -57,7 +59,8 @@ pub const EN_LOCALE : Locale = Locale {
     opening_file:       "Opening file...",
     file_load_error:    "File open error",
     file_wrong_format:  "File wrong format",
-    file_hovered_messege: "Put it here"
+    file_hovered_messege: "Put it here",
+    common_components: "Common",
 };
 
 

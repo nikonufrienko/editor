@@ -108,7 +108,7 @@ impl Field {
     pub const LOD_LEVEL0_SCALE: f32 = 0.5;
 
     pub fn new() -> Self {
-        let scale = (Self::MAX_SCALE / 10.0).max(Self::MIN_SCALE);
+        let scale = (Self::MAX_SCALE / 40.0).max(Self::MIN_SCALE);
         let db = GridBD::new();
 
         Self {

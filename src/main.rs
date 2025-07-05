@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use eframe::egui;
-use egui::{vec2, Id, LayerId, Rect, Sense, Stroke};
+use egui::{pos2, response, vec2, CursorIcon, Id, LayerId, Rect, Sense, Stroke};
 
 use crate::{
     field::{Field, GridType}, file_managment::FileManager, locale::{get_system_default_locale, SUPPORTED_LOCALES}, preview::PreviewPanel
@@ -132,6 +132,7 @@ impl eframe::App for EditorApp {
             ctx,
             foreground,
             self.field.state.scale,
+            locale
         ));    
         egui::CentralPanel::default().show(ctx, |ui| {
 
@@ -144,14 +145,25 @@ impl eframe::App for EditorApp {
 fn panel_left_switch(ui:&mut egui::Ui, is_expanded: &mut bool) {
     let h = ui.available_height();
     ui.add_space((ui.available_width()- h * 2.0).max(0.0));
-    let (rect, resp) = ui.allocate_exact_size(vec2(1.5*h, h), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(1.3*h, h), Sense::click());
     let visuals = ui.visuals();
-    let color = if *is_expanded {visuals.text_color()} else {visuals.weak_text_color()};
+    let mut color = visuals.text_color();
+    if resp.hovered() {
+        ui.ctx()
+        .output_mut(|o| o.cursor_icon = CursorIcon::PointingHand);
+        color = visuals.strong_text_color()
+    }
     let stroke = Stroke::new(h * 0.075, color);
     let paint_rect = rect.scale_from_center(0.8);
     let r = paint_rect.height() * 0.06;
     ui.painter().rect_stroke(paint_rect, r, stroke, egui::StrokeKind::Inside);
-    ui.painter().rect_filled(Rect::from_min_size(paint_rect.min, vec2(paint_rect.height() *0.5, paint_rect.height())), r, color);
+    if *is_expanded {
+        ui.painter().rect_filled(Rect::from_min_size(paint_rect.min, vec2(paint_rect.height() * 0.4, paint_rect.height())), r, color);
+    } else {
+        ui.painter().line_segment([pos2(paint_rect.left() + paint_rect.height() * 0.4, paint_rect.top()), pos2(paint_rect.left() + paint_rect.height() * 0.4, paint_rect.bottom())], stroke);
+    }
+
+
 
     //ui.painter().rect_filled(rect, visuals.menu_corner_radius / 2.0, stroke, egui::StrokeKind::Middle);
 
