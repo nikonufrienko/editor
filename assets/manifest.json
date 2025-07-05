@@ -1,6 +1,6 @@
 {
-  "name": "egui Template PWA",
-  "short_name": "egui-template-pwa",
+  "name": "Editor",
+  "short_name": "eitor-pwa",
   "icons": [
     {
       "src": "./assets/icon-256.png",
