@@ -1,12 +1,17 @@
-use egui::{vec2, CursorIcon, LayerId, Pos2, Rect, RichText, Sense, Vec2};
+use egui::{CursorIcon, LayerId, Pos2, Rect, RichText, Sense, Vec2, vec2};
 use once_cell::sync::Lazy;
 
-use crate::{component_lib::{AND2, AND3, AND9, EXAMPLE_UNIT}, field::Field, grid_db::Component, locale::{self, Locale}};
+use crate::{
+    component_lib::{AND2, AND3, AND9, EXAMPLE_UNIT},
+    field::Field,
+    grid_db::Component,
+    locale::Locale,
+};
 
 pub struct PreviewPanel {
     drag_vec: Vec2,
     showcase: Vec<&'static Lazy<Component>>,
-    pub is_expanded: bool
+    pub is_expanded: bool,
 }
 
 pub enum DragComponentResponse {
@@ -26,20 +31,16 @@ impl PreviewPanel {
         Self {
             is_expanded: true,
             drag_vec: vec2(0.0, 0.0),
-            showcase: vec![
-                &EXAMPLE_UNIT,
-                &AND2,
-                &AND3,
-                &AND9
-            ]
+            showcase: vec![&EXAMPLE_UNIT, &AND2, &AND3, &AND9],
         }
     }
 
-    pub fn component_preview(&mut self,
+    pub fn component_preview(
+        &mut self,
         ui: &mut egui::Ui,
         foreground: LayerId,
         field_scale: f32,
-        i: usize
+        i: usize,
     ) -> DragComponentResponse {
         let mut drag_response = DragComponentResponse::None;
         let mut rect = ui.available_rect_before_wrap();
@@ -105,29 +106,38 @@ impl PreviewPanel {
         locale: &'static Locale,
     ) -> DragComponentResponse {
         let mut drag_response = DragComponentResponse::None;
-        egui::SidePanel::left("left_panel").resizable(true).show_animated(ctx, self.is_expanded,  |ui| {
-            ui.heading(RichText::new(locale.components).strong());
-            ui.separator();
-            egui::ScrollArea::vertical().max_width(ui.available_width()).show(ui, |ui| {
-                ui.collapsing(locale.common_components, |ui| {
-                    for i in 0..self.showcase.len() {
-                        egui::Frame::default()
-                        .stroke( ui.visuals().window_stroke)
-                        .corner_radius(5.0)
-                        .inner_margin(10.0)
-                        .show(ui, |ui| { 
-                    
-                            let resp = self.component_preview(ui, foreground, field_scale, i);
-                            match resp {
-                                DragComponentResponse::None => {},
-                                _ => {drag_response = resp}
-                            }
-                        });
-                    }                    
-                });
+        egui::SidePanel::left("left_panel")
+            .resizable(true)
+            .show_animated(ctx, self.is_expanded, |ui| {
+                ui.heading(RichText::new(locale.components).strong());
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .max_width(ui.available_width())
+                    .show(ui, |ui| {
+                        egui::CollapsingHeader::new(locale.common_components)
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                for i in 0..self.showcase.len() {
+                                    egui::Frame::default()
+                                        .stroke(ui.visuals().window_stroke)
+                                        .corner_radius(5.0)
+                                        .inner_margin(10.0)
+                                        .show(ui, |ui| {
+                                            let resp = self.component_preview(
+                                                ui,
+                                                foreground,
+                                                field_scale,
+                                                i,
+                                            );
+                                            match resp {
+                                                DragComponentResponse::None => {}
+                                                _ => drag_response = resp,
+                                            }
+                                        });
+                                }
+                            });
+                    });
             });
-        });
         return drag_response;
     }
-    
 }

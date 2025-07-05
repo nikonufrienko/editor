@@ -1,11 +1,13 @@
 use egui::{
-    pos2, vec2, Color32, CursorIcon, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui, Vec2
+    Color32, CursorIcon, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind,
+    Ui, Vec2, pos2, vec2,
 };
 use std::sync::Arc;
 
 use crate::{
     grid_db::{
-       grid_pos, grid_rect, Component, ComponentAction, GridBD, GridBDConnectionPoint, GridPos, Id, Net, RotationDirection
+        Component, ComponentAction, GridBD, GridBDConnectionPoint, GridPos, Id, Net,
+        RotationDirection, grid_pos, grid_rect,
     },
     preview::DragComponentResponse,
 };
@@ -215,8 +217,8 @@ impl Field {
 
     // Update state of field
     fn refresh(&mut self, ui: &mut egui::Ui, response: &Response, allocated_rect: Rect) {
-        let delta_vec =  allocated_rect.min - self.state.rect.min;
-        self.state.offset -= delta_vec; 
+        let delta_vec = allocated_rect.min - self.state.rect.min;
+        self.state.offset -= delta_vec;
         self.state.rect = allocated_rect;
         if response.hovered() {
             let zoom_delta = ui.input(|i| i.zoom_delta());
@@ -369,7 +371,9 @@ impl ConnectionBuilder {
             result.push(a.clone());
         });
         let target_comp = bd.get_component(&target.component_id).unwrap();
-        let target_pos = target_comp.get_connection_dock_cell(target.connection_id).unwrap();
+        let target_pos = target_comp
+            .get_connection_dock_cell(target.connection_id)
+            .unwrap();
         result.extend(bd.find_net_path(result.last().unwrap().clone(), target_pos.clone())); // !!!
         result.push(target_pos);
         return Some(simplify_path(result));
@@ -439,7 +443,9 @@ impl ConnectionBuilder {
                     let shape = filled_cells(state, a, 1, 1, Color32::RED);
                     painter.add(shape);
                 });
-                let p1 = comp.get_connection_position(point.connection_id, state).unwrap();
+                let p1 = comp
+                    .get_connection_position(point.connection_id, state)
+                    .unwrap();
                 let p1_1_grid = comp.get_connection_dock_cell(point.connection_id).unwrap();
                 let mut points = vec![
                     p1,
@@ -450,8 +456,7 @@ impl ConnectionBuilder {
                 self.anchors.iter().for_each(|a| {
                     let path = bd.find_net_path(last_grid_p.clone(), a.clone());
                     points.extend(path.iter().map(|t| {
-                        state.grid_to_screen(t)
-                            + vec2(0.5 * state.grid_size, 0.5 * state.grid_size)
+                        state.grid_to_screen(t) + vec2(0.5 * state.grid_size, 0.5 * state.grid_size)
                     }));
                     points.push(
                         state.grid_to_screen(a)
@@ -576,15 +581,18 @@ impl DragManager {
         }
     }
 
-
-    fn move_net_connection_point(comp_id: Id, net_id: Id, bd: &mut GridBD, delta_x: i32, delta_y: i32) {
+    fn move_net_connection_point(
+        comp_id: Id,
+        net_id: Id,
+        bd: &mut GridBD,
+        delta_x: i32,
+        delta_y: i32,
+    ) {
         let mut net = bd.remove_net(&net_id).unwrap();
         let pts_len = net.points.len();
 
         if pts_len >= 2 {
-            if comp_id == net.start_point.component_id
-                && comp_id == net.end_point.component_id
-            {
+            if comp_id == net.start_point.component_id && comp_id == net.end_point.component_id {
                 // Move all points if component is connected to both ends
                 for i in 0..net.points.len() {
                     net.points[i] = net.points[i] + grid_pos(delta_x, delta_y);
@@ -677,20 +685,33 @@ impl DragManager {
         let mut rotated_comp = comp.clone();
         rotated_comp.rotate(dir);
 
-        if bd.is_available_location(rotated_comp.get_position(), rotated_comp.get_dimension(), comp_id) {
-            let nets_ids: Vec<Id> = bd.get_connected_nets(&comp_id).iter().map(|it| {*it}).collect();
-            let connections_ids: Vec<Id> = nets_ids.iter().map(|it| {
-                let net =  bd.nets.get(it).unwrap();
-                if net.end_point.component_id == comp_id {
-                    net.end_point.connection_id
-                } else {
-                    net.start_point.connection_id
-                }
-            }).collect();
+        if bd.is_available_location(
+            rotated_comp.get_position(),
+            rotated_comp.get_dimension(),
+            comp_id,
+        ) {
+            let nets_ids: Vec<Id> = bd
+                .get_connected_nets(&comp_id)
+                .iter()
+                .map(|it| *it)
+                .collect();
+            let connections_ids: Vec<Id> = nets_ids
+                .iter()
+                .map(|it| {
+                    let net = bd.nets.get(it).unwrap();
+                    if net.end_point.component_id == comp_id {
+                        net.end_point.connection_id
+                    } else {
+                        net.start_point.connection_id
+                    }
+                })
+                .collect();
 
             for (i, net_id) in nets_ids.iter().enumerate() {
                 let old_pos = comp.get_connection_dock_cell(connections_ids[i]).unwrap();
-                let new_pos = rotated_comp.get_connection_dock_cell(connections_ids[i]).unwrap();
+                let new_pos = rotated_comp
+                    .get_connection_dock_cell(connections_ids[i])
+                    .unwrap();
                 let delta_y = new_pos.y - old_pos.y;
                 let delta_x = new_pos.x - old_pos.x;
                 Self::move_net_connection_point(comp_id, *net_id, bd, delta_x, delta_y);
@@ -744,7 +765,8 @@ impl DragManager {
                         ui.ctx()
                             .output_mut(|o| o.cursor_icon = CursorIcon::ResizeHorizontal);
                     }
-                    if response.is_pointer_button_down_on() { // Do no use dragged() or drag_started()
+                    if response.is_pointer_button_down_on() {
+                        // Do no use dragged() or drag_started()
                         self.drag_delta += response.drag_delta();
                         self.state = DragState::NetDragged {
                             net_id: segment.net_id,
@@ -769,16 +791,16 @@ impl DragManager {
                         ComponentAction::RotateUp => {
                             self.rotate_component(id, bd, RotationDirection::Up);
                             self.state = DragState::Idle;
-                        },
+                        }
                         ComponentAction::RotateDown => {
                             self.rotate_component(id, bd, RotationDirection::Down);
                             self.state = DragState::Idle;
-                        },
+                        }
                         ComponentAction::Remove => {
                             bd.remove_component_with_connected_nets(&id);
                             self.state = DragState::Idle;
                             return true;
-                        },
+                        }
                         _ => {}
                     }
                     return true;
@@ -912,7 +934,10 @@ impl DragManager {
     fn get_action(comp: &Component, state: &FieldState) -> ComponentAction {
         if let Some(cursor_pos) = state.cursor_pos {
             let actions = comp.get_available_actions();
-            for (i, rect) in ComponentAction::actions_grid(comp, state, actions.len()).iter().enumerate() {
+            for (i, rect) in ComponentAction::actions_grid(comp, state, actions.len())
+                .iter()
+                .enumerate()
+            {
                 if rect.contains(cursor_pos) {
                     return actions[i];
                 }
@@ -928,11 +953,21 @@ impl DragManager {
             let rect = ComponentAction::actions_rect(comp, state, actions.len());
             let r = rect.height() * 0.1;
             painter.add(visuals.popup_shadow.as_shape(rect, r));
-            painter.rect(rect, r, visuals.panel_fill, visuals.window_stroke(), StrokeKind::Outside);
+            painter.rect(
+                rect,
+                r,
+                visuals.panel_fill,
+                visuals.window_stroke(),
+                StrokeKind::Outside,
+            );
             let grid = ComponentAction::actions_grid(comp, state, actions.len());
             actions.iter().enumerate().for_each(|(i, act)| {
                 let rect = grid[i];
-                let selected = if let Some(cursor_pos) = state.cursor_pos {rect.contains(cursor_pos)} else {false};
+                let selected = if let Some(cursor_pos) = state.cursor_pos {
+                    rect.contains(cursor_pos)
+                } else {
+                    false
+                };
                 act.draw(&rect, painter, selected, visuals);
             });
         }

@@ -7,7 +7,7 @@ pub struct Locale {
     pub file: &'static str,
     pub save: &'static str,
     pub open: &'static str,
-    pub file_save_error : &'static str,
+    pub file_save_error: &'static str,
     pub grid: &'static str,
     pub view: &'static str,
     pub cells: &'static str,
@@ -18,51 +18,49 @@ pub struct Locale {
     pub opening_file: &'static str,
     pub file_load_error: &'static str,
     pub file_wrong_format: &'static str,
-    pub file_hovered_messege: &'static str,
+    pub file_hovered_message: &'static str,
     pub common_components: &'static str,
 }
 
-pub const RU_LOCALE : Locale = Locale {
-    locale_name:        "RU",
-    file:               "Файл",
-    save:               "Сохранить",
-    open:               "Открыть",
-    file_save_error:    "Ошибка сохранения файла",
-    grid:               "Сетка",
-    cells:              "Клетки", // Сетка в клеточку
-    dots:               "Точки",  // Сетка в виде точек
-    view:               "Вид",
-    language:           "Язык",
-    components:         "Компоненты",
-    saving_file:        "Сохранение файла...",
-    opening_file:       "Открытие файла...",
-    file_load_error:    "Ошибка при открытии файла",
-    file_wrong_format:  "Неверный формат файла",
-    file_hovered_messege: "А ну давай это сюда",
+pub const RU_LOCALE: Locale = Locale {
+    locale_name: "RU",
+    file: "Файл",
+    save: "Сохранить",
+    open: "Открыть",
+    file_save_error: "Ошибка сохранения файла",
+    grid: "Сетка",
+    cells: "Клетки", // Сетка в клеточку
+    dots: "Точки",   // Сетка в виде точек
+    view: "Вид",
+    language: "Язык",
+    components: "Компоненты",
+    saving_file: "Сохранение файла...",
+    opening_file: "Открытие файла...",
+    file_load_error: "Ошибка при открытии файла",
+    file_wrong_format: "Неверный формат файла",
+    file_hovered_message: "А ну давай это сюда",
     common_components: "Общие",
 };
 
-
-pub const EN_LOCALE : Locale = Locale {
-    locale_name:        "EN",
-    file:               "File",
-    save:               "Save",
-    open:               "Open",
-    file_save_error:    "File save error",
-    grid:               "Grid",
-    view:               "View",
-    cells:              "Cells",
-    dots:               "Dots",
-    language:           "Language",
-    components:         "Components",
-    saving_file:        "Saving file...",
-    opening_file:       "Opening file...",
-    file_load_error:    "File open error",
-    file_wrong_format:  "File wrong format",
-    file_hovered_messege: "Put it here",
+pub const EN_LOCALE: Locale = Locale {
+    locale_name: "EN",
+    file: "File",
+    save: "Save",
+    open: "Open",
+    file_save_error: "File save error",
+    grid: "Grid",
+    view: "View",
+    cells: "Cells",
+    dots: "Dots",
+    language: "Language",
+    components: "Components",
+    saving_file: "Saving file...",
+    opening_file: "Opening file...",
+    file_load_error: "File open error",
+    file_wrong_format: "File wrong format",
+    file_hovered_message: "Put it here",
     common_components: "Common",
 };
-
 
 pub fn get_system_default_locale() -> LocaleType {
     let locale;
@@ -88,7 +86,7 @@ pub fn get_system_default_locale() -> LocaleType {
 #[derive(PartialEq, Clone, Copy)]
 pub enum LocaleType {
     En,
-    Ru
+    Ru,
 }
 
 impl LocaleType {
@@ -100,7 +98,4 @@ impl LocaleType {
     }
 }
 
-pub const SUPPORTED_LOCALES: &'static [LocaleType] = &[
-    LocaleType::Ru,
-    LocaleType::En
-];
+pub const SUPPORTED_LOCALES: &'static [LocaleType] = &[LocaleType::Ru, LocaleType::En];

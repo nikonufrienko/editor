@@ -1,5 +1,6 @@
 use std::{
-    collections::{HashMap, HashSet}, i32, usize
+    collections::{HashMap, HashSet},
+    i32, usize,
 };
 
 use rstar::{AABB, PointDistance, RTree, RTreeObject};
@@ -7,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     field::FieldState,
-    grid_db::{grid_pos, Component, GridPos, Net, NetSegment},
+    grid_db::{Component, GridPos, Net, NetSegment, grid_pos},
 }; // AABB = Axis-Aligned Bounding Box (прямоугольник)
 type Point = [i32; 2]; // Точка (x, y)
 
@@ -90,13 +91,26 @@ impl GridBD {
 
     pub fn insert_component(&mut self, id: Id, component: Component) {
         let rect: GridRect = component.get_grid_rect(id);
-        component.get_connection_dock_cells().iter().enumerate().for_each(|(i, cell)| {
-            if let Some(set) = self.connections.get_mut(cell) {
-                set.insert(GridBDConnectionPoint {component_id: id, connection_id: i});
-            } else {
-                self.connections.insert(*cell, HashSet::from([GridBDConnectionPoint {component_id: id, connection_id: i}]));
-            }
-        });
+        component
+            .get_connection_dock_cells()
+            .iter()
+            .enumerate()
+            .for_each(|(i, cell)| {
+                if let Some(set) = self.connections.get_mut(cell) {
+                    set.insert(GridBDConnectionPoint {
+                        component_id: id,
+                        connection_id: i,
+                    });
+                } else {
+                    self.connections.insert(
+                        *cell,
+                        HashSet::from([GridBDConnectionPoint {
+                            component_id: id,
+                            connection_id: i,
+                        }]),
+                    );
+                }
+            });
         self.components.insert(rect.id, component);
         self.tree.insert(rect);
     }
@@ -110,7 +124,11 @@ impl GridBD {
         let component = self.components.get(&id)?;
         for cell in component.get_connection_dock_cells() {
             if let Some(connections_set) = self.connections.get_mut(&cell) {
-                if let Some(connection) = connections_set.iter().find(|it|{it.component_id == *id}).cloned() {
+                if let Some(connection) = connections_set
+                    .iter()
+                    .find(|it| it.component_id == *id)
+                    .cloned()
+                {
                     connections_set.remove(&connection);
                     if connections_set.is_empty() {
                         self.connections.remove(&cell);
@@ -136,7 +154,8 @@ impl GridBD {
                     {
                         for connection in connections {
                             if let Some(component) = self.components.get(&connection.component_id) {
-                                if component.is_connection_hovered(connection.connection_id, state) {
+                                if component.is_connection_hovered(connection.connection_id, state)
+                                {
                                     return Some(connection.clone());
                                 }
                             }
@@ -257,14 +276,18 @@ impl GridBD {
     pub fn get_connected_nets(&self, component_id: &Id) -> HashSet<Id> {
         let mut result = HashSet::new();
         if let Some(comp) = self.get_component(component_id) {
-            comp.get_connection_dock_cells().iter().enumerate().for_each(|(inner_id, _cell)| { // TODO: simplify it
-                if let Some(set) = self
-                    .connected_nets
-                    .get(&&GridBDConnectionPoint { component_id: *component_id, connection_id: inner_id } )
-                {
-                    result.extend(set);
-                }
-            });
+            comp.get_connection_dock_cells()
+                .iter()
+                .enumerate()
+                .for_each(|(inner_id, _cell)| {
+                    // TODO: simplify it
+                    if let Some(set) = self.connected_nets.get(&&GridBDConnectionPoint {
+                        component_id: *component_id,
+                        connection_id: inner_id,
+                    }) {
+                        result.extend(set);
+                    }
+                });
         }
         result
     }
@@ -281,10 +304,11 @@ impl GridBD {
     }
 
     pub fn dump_to_json(&self) -> Option<String> {
-        serde_json::to_string(&GridBdDump{
+        serde_json::to_string(&GridBdDump {
             components: self.components.clone(),
             nets: self.nets.clone(),
-        }).ok()
+        })
+        .ok()
     }
 
     pub fn load_from_json(json: String) -> Result<Self, serde_json::Error> {
@@ -308,7 +332,7 @@ impl GridBD {
 #[derive(Serialize, Deserialize)]
 struct GridBdDump {
     components: HashMap<Id, Component>,
-    nets: HashMap<Id, Net>
+    nets: HashMap<Id, Net>,
 }
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]

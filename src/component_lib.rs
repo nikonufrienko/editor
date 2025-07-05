@@ -1,5 +1,4 @@
-
-use crate::grid_db::{grid_pos, AndGate, Component, ConnectionAlign, Port, Unit};
+use crate::grid_db::{AndGate, Component, ConnectionAlign, Port, Unit, grid_pos};
 use once_cell::sync::Lazy;
 
 pub static EXAMPLE_UNIT: Lazy<Component> = Lazy::new(|| {
@@ -50,24 +49,24 @@ pub static EXAMPLE_UNIT: Lazy<Component> = Lazy::new(|| {
 
 pub static AND2: Lazy<Component> = Lazy::new(|| {
     Component::AndGate(AndGate {
-        n_inputs : 2,
+        n_inputs: 2,
         pos: grid_pos(1, 1), // Default preview pos
-        rotation : crate::grid_db::Rotation::ROT0
+        rotation: crate::grid_db::Rotation::ROT0,
     })
 });
 
 pub static AND3: Lazy<Component> = Lazy::new(|| {
     Component::AndGate(AndGate {
-        n_inputs : 3,
+        n_inputs: 3,
         pos: grid_pos(1, 1), // Default preview pos
-        rotation : crate::grid_db::Rotation::ROT0
+        rotation: crate::grid_db::Rotation::ROT0,
     })
 });
 
 pub static AND9: Lazy<Component> = Lazy::new(|| {
     Component::AndGate(AndGate {
-        n_inputs : 9,
+        n_inputs: 9,
         pos: grid_pos(1, 1), // Default preview pos
-        rotation : crate::grid_db::Rotation::ROT0
+        rotation: crate::grid_db::Rotation::ROT0,
     })
 });
