@@ -1,5 +1,11 @@
 use std::sync::{atomic::AtomicBool, Arc};
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::Read;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs::File;
+
 use egui::mutex::Mutex;
 
 use crate::{grid_db::GridBD, locale::Locale};
@@ -19,7 +25,6 @@ impl FileManager {
     pub fn new() -> Self {
         Self {
             state : FileManagerState::None,
-            //#[cfg(not(target_arch = "wasm32"))]
             done: Arc::new(AtomicBool::new(false)),
             loaded_data: Arc::new(Mutex::new(Err(&""))) // Dummy value
         }
@@ -27,7 +32,7 @@ impl FileManager {
 
     fn check_dropping_files(&mut self, ctx: &egui::Context, locale: &Locale, bd: &mut GridBD) {
         if ctx.input(|input_state| !input_state.raw.hovered_files.is_empty()) {
-            egui::modal::Modal::new("FileManager".into()).show(ctx, |ui|{ ui.label("Давай сюда!")});
+            egui::modal::Modal::new("FileManager".into()).show(ctx, |ui|{ ui.label(locale.file_hovered_messege)});
         }
 
         let file_read_err = ctx.input(|input_state| if !input_state.raw.dropped_files.is_empty() {
@@ -38,6 +43,25 @@ impl FileManager {
                         if let Ok(result) =  GridBD::load_from_json(json) {
                             *bd = result;
                             return false;
+                        }
+                    }
+                } else {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        println!("{:?}", file.path);
+                        if let Some(path) = &file.path {
+                            if let Ok(mut file) = File::open(path) {
+                                let mut bytes = vec![];
+                                if let Ok(_size) = file.read_to_end(&mut bytes) {
+                                    println!("2:{_size}");
+                                    if let Ok(json) = String::from_utf8(bytes.to_vec()) {
+                                        if let Ok(result) =  GridBD::load_from_json(json) {
+                                            *bd = result;
+                                            return false;
+                                        }
+                                    }  
+                                }
+                            }
                         }
                     }
                 }

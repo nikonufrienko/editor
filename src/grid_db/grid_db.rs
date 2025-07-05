@@ -289,13 +289,18 @@ impl GridBD {
 
     pub fn load_from_json(json: String) -> Result<Self, serde_json::Error> {
         let dump: GridBdDump = serde_json::from_str(&json)?;
-        let mut result =  Self::new();
-        for (_i, component) in dump.components {
-            result.push_component(component);
+        let mut result = Self::new();
+        if let Some(max_id) = dump.components.keys().max() {
+            result.next_component_id = max_id + 1;
+        }
+
+        for (id, component) in dump.components {
+            result.insert_component(id, component);
         }
         for (_i, net) in dump.nets {
             result.add_net(net);
         }
+        // Fixme: need load with same id???
         Ok(result)
     }
 }

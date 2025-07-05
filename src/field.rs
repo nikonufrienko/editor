@@ -1,7 +1,7 @@
 use egui::{
     pos2, vec2, Color32, CursorIcon, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui, Vec2
 };
-use std::{sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     grid_db::{
@@ -103,7 +103,7 @@ impl Field {
     pub const MAX_SCALE: f32 = 100.0;
     pub const MAX_FONT_SIZE: f32 = 32.0;
     pub const POINT_MIN_SCALE: f32 = 2.0;
-    pub const GRID_MIN_SCALE: f32 = 0.5;
+    pub const GRID_MIN_SCALE: f32 = 0.6;
     pub const MIN_DISPLAY_TEXT_SIZE: f32 = 3.0;
     pub const LOD_LEVEL0_SCALE: f32 = 0.5;
 
@@ -214,15 +214,18 @@ impl Field {
     }
 
     // Update state of field
-    fn refresh(&mut self, ui: &mut egui::Ui, response: &Response) {
+    fn refresh(&mut self, ui: &mut egui::Ui, response: &Response, allocated_rect: Rect) {
+        let delta_vec =  allocated_rect.min - self.state.rect.min;
+        self.state.offset -= delta_vec; 
+        self.state.rect = allocated_rect;
         if response.hovered() {
             let zoom_delta = ui.input(|i| i.zoom_delta());
             let new_scale = (self.state.scale * zoom_delta).clamp(Self::MIN_SCALE, Self::MAX_SCALE);
             let zoom_factor = new_scale / self.state.scale;
 
             if let Some(hover_pos) = response.hover_pos() {
-                self.state.offset =
-                    (self.state.offset - hover_pos.to_vec2()) * zoom_factor + hover_pos.to_vec2();
+                let local_pos = hover_pos - self.state.rect.min;
+                self.state.offset = (self.state.offset - local_pos) * zoom_factor + local_pos;
             }
 
             self.state.scale = new_scale;
@@ -269,9 +272,9 @@ impl Field {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        self.state.rect = ui.available_rect_before_wrap();
+        let allocated_rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(self.state.rect, Sense::drag().union(Sense::all()));
-        self.refresh(ui, &response);
+        self.refresh(ui, &response, allocated_rect);
         self.display_grid(ui);
         let grid_rect = grid_rect(
             0,
@@ -722,12 +725,11 @@ impl DragManager {
                         ui.ctx()
                             .output_mut(|o| o.cursor_icon = CursorIcon::ResizeHorizontal);
                     }
-                    if response.dragged() {
+                    if response.is_pointer_button_down_on() {
                         self.drag_delta += response.drag_delta();
                         return true;
                     } else {
                         self.drag_delta = vec2(0.0, 0.0);
-                        //bd.remove_net(&net_id);
                         self.move_net_segment(&state.screen_to_grid(hover_pos), bd);
                         self.state = DragState::Idle
                     }
@@ -742,7 +744,7 @@ impl DragManager {
                         ui.ctx()
                             .output_mut(|o| o.cursor_icon = CursorIcon::ResizeHorizontal);
                     }
-                    if response.drag_started() || response.dragged() {
+                    if response.is_pointer_button_down_on() { // Do no use dragged() or drag_started()
                         self.drag_delta += response.drag_delta();
                         self.state = DragState::NetDragged {
                             net_id: segment.net_id,

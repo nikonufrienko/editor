@@ -1,4 +1,4 @@
-
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use eframe::egui;
 use egui::{vec2, Id, LayerId, Rect, Sense, Stroke};
 
@@ -51,7 +51,7 @@ fn main() {
             .start(
                 canvas,
                 web_options,
-                Box::new(|cc| Ok(Box::new(EditorApp::new()))),
+                Box::new(|_cc| Ok(Box::new(EditorApp::new()))),
             )
             .await;
 
@@ -132,10 +132,9 @@ impl eframe::App for EditorApp {
             ctx,
             foreground,
             self.field.state.scale,
-        ));
-
-
+        ));    
         egui::CentralPanel::default().show(ctx, |ui| {
+
             self.field.show(ui);
         });
     }

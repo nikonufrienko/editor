@@ -660,27 +660,8 @@ impl NetSegment {
         let half_w = w * 0.5;
         let ofs = Vec2::new(0.5 * state.grid_size, 0.5 * state.grid_size);
 
-        let mut p1 = state.grid_to_screen(&self.pos1) + ofs;
-        let mut p2 = state.grid_to_screen(&self.pos2) + ofs;
-
-        if self.is_horizontal() {
-            let h_ofs = Vec2::new(w * 0.5, 0.0);
-            if self.pos1.x < self.pos2.x {
-                if self.con1.is_none() {
-                    p1 -= h_ofs;
-                }
-                if self.con2.is_none() {
-                    p2 += h_ofs;
-                }
-            } else {
-                if self.con1.is_none() {
-                    p1 += h_ofs;
-                }
-                if self.con2.is_none() {
-                    p2 -= h_ofs;
-                }
-            }
-        }
+        let p1 = state.grid_to_screen(&self.pos1) + ofs;
+        let p2 = state.grid_to_screen(&self.pos2) + ofs;
 
         let mut pts = vec![p1, p2];
 
@@ -699,7 +680,7 @@ impl NetSegment {
         let color = Color32::DARK_GRAY;
         let mut mesh = Mesh::default();
 
-        for i in 0..pts.len().saturating_sub(1) {
+        for i in 0..pts.len() - 1 {
             let start = pts[i];
             let end = pts[i + 1];
 
@@ -709,17 +690,16 @@ impl NetSegment {
                 continue;
             }
             let dir = delta / length;
-            let perp = Vec2::new(-dir.y, dir.x); // перпендикуляр
+            let perp = Vec2::new(-dir.y, dir.x);
             let half = perp * half_w;
 
-            let p1 = start + half;
-            let p2 = start - half;
-            let p3 = end + half;
-            let p4 = end - half;
+            let p1 = start + half - dir * half_w;
+            let p2 = start - half - dir * half_w;
+            let p3 = end + half + dir * half_w;
+            let p4 = end - half + dir * half_w;
 
             let idx_base = mesh.vertices.len() as u32;
 
-            // Добавляем `uv: Pos2::ZERO`, даже если текстуры не используются
             mesh.vertices.push(Vertex {
                 pos: p1,
                 uv: Pos2::ZERO,
@@ -741,7 +721,6 @@ impl NetSegment {
                 color,
             });
 
-            // два треугольника на сегмент
             mesh.indices.extend_from_slice(&[
                 idx_base,
                 idx_base + 1,
@@ -754,6 +733,7 @@ impl NetSegment {
 
         mesh
     }
+
 
     pub fn is_hovered(&self, state: &FieldState) -> bool {
         let ofs = Vec2::new(0.5 * state.grid_size, 0.5 * state.grid_size);
