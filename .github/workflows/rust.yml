@@ -6,7 +6,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  ARTIFACT_NAME: editor  # Новая переменная для имени артефакта
+  ARTIFACT_NAME: editor 
 
 jobs:
   build:
