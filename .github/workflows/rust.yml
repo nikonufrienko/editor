@@ -26,13 +26,13 @@ jobs:
     - name: Build for x86_64-pc-windows-gnu
       run: cargo build -r --target x86_64-pc-windows-gnu --verbose
 
-    - name: Upload artifact x86_64-pc-windows-gnu
+    - name: Upload Windows artifact
       uses: actions/upload-artifact@v4
       with:
         name: windows-gnu-build
         path: target/x86_64-pc-windows-gnu/release/${{ env.ARTIFACT_NAME }}.exe
 
-    - name: Upload artifact x86_64-unknown-linux-gnu
+    - name: Upload Linux artifact
       uses: actions/upload-artifact@v4
       with:
         name: linux-gnu-build
@@ -43,31 +43,29 @@ jobs:
     
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v2
+      uses: softprops/action-gh-release@v1
       with:
         tag_name: commit-${{ env.COMMIT_HASH }}
-        release_name: Release commit-${{ env.COMMIT_HASH }}
+        name: Release commit-${{ env.COMMIT_HASH }}
         draft: false
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
-    - name: Upload Windows GNU Build
-      uses: actions/upload-release-asset@v2
+        
+    - name: Upload Windows Release Asset
+      uses: softprops/action-gh-release@v1
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: target/x86_64-pc-windows-gnu/release/${{ env.ARTIFACT_NAME }}.exe
-        asset_name: ${{ env.ARTIFACT_NAME }}_x86_64-pc-windows-gnu.exe
-        asset_content_type: application/octet-stream
+        files: |
+          target/x86_64-pc-windows-gnu/release/${{ env.ARTIFACT_NAME }}.exe
+        tag_name: commit-${{ env.COMMIT_HASH }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         
-    - name: Upload Linux Build
-      uses: actions/upload-release-asset@v2
+    - name: Upload Linux Release Asset
+      uses: softprops/action-gh-release@v1
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: target/x86_64-unknown-linux-gnu/release/${{ env.ARTIFACT_NAME }}
-        asset_name: ${{ env.ARTIFACT_NAME }}_x86_64-unknown-linux-gnu
-        asset_content_type: application/octet-stream
+        files: |
+          target/x86_64-unknown-linux-gnu/release/${{ env.ARTIFACT_NAME }}
+        tag_name: commit-${{ env.COMMIT_HASH }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
