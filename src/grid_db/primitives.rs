@@ -1,11 +1,9 @@
-use std::{f32::consts::PI, sync::Arc};
+use std::f32::consts::PI;
 
-use egui::{epaint::PathShape, pos2, vec2, Color32, Painter, Pos2, Shape, Stroke};
-use lyon::{path::Path, tessellation::{FillOptions, FillTessellator, FillVertex, VertexBuffers}};
+use egui::{Color32, Painter, Pos2, Shape, Stroke, pos2, vec2};
 use serde::{Deserialize, Serialize};
-use lyon::geom::{point, Point};
 
-use crate::field::FieldState;
+use crate::{field::FieldState, grid_db::get_concave_polygon_shape};
 
 use super::{ComponentAction, GridPos, Id, grid_pos};
 
@@ -183,49 +181,36 @@ impl PrimitiveComponent {
 
     pub fn display(&self, state: &FieldState, painter: &Painter) {
         let stroke_w = 1.0 * state.scale;
-        
+        let fill_color = Color32::GRAY;
+        let stroke_color = Color32::DARK_GRAY;
+        let stroke = Stroke {
+            color: stroke_color,
+            width: stroke_w,
+        };
+        self.typ
+            .get_lines(state, &self.pos)
+            .iter()
+            .for_each(|segment| {
+                let rotated = self.apply_rotation(segment.to_vec(), state);
+                painter.line_segment([rotated[0], rotated[1]], stroke);
+            });
+
         // Получаем точки полигона и применяем вращение
-        let raw_points = self.typ.get_polygon_points_raw(state, stroke_w, &self.pos);
-        let points = self.apply_rotation(raw_points, state);
-        
-        // Создаем путь с помощью Lyon
-        let mut builder = Path::builder();
-        if let Some(first) = points.first() {
-            builder.begin(point(first.x, first.y));
-            for p in &points[1..] {
-                builder.line_to(point(p.x, p.y));
-            }
-            builder.close();
-        }
-        let path = builder.build();
-    
-        // Триангулируем путь (используем правильные типы вершин)
-        let mut geometry: VertexBuffers<egui::epaint::Vertex, u16> = VertexBuffers::new();
-        let mut tessellator = FillTessellator::new();
-        
-        tessellator.tessellate_path(
-            &path,
-            &FillOptions::default(),
-            &mut lyon::tessellation::BuffersBuilder::new(
-                &mut geometry,
-                |vertex: FillVertex| {  // Используем FillVertex вместо Point
-                    egui::epaint::Vertex {
-                        pos: pos2(vertex.position().x, vertex.position().y),
-                        uv: egui::epaint::WHITE_UV,
-                        color: Color32::GRAY,
-                    }
-                },
-            ),
-        ).expect("Tessellation failed");
-    
-        // Создаем меш egui
-        let mut mesh = egui::Mesh::default();
-        mesh.vertices = geometry.vertices;
-        mesh.indices = geometry.indices.iter().map(|i| *i as u32).collect();
-        
-        // Рисуем меш
-        painter.add(egui::Shape::Mesh(Arc::new(mesh)));
-        
+        let (polygon_type, raw_points) =
+            self.typ.get_polygon_points_raw(state, stroke_w, &self.pos);
+        let points: Vec<Pos2> = self.apply_rotation(raw_points, state);
+
+        match polygon_type {
+            PolygonType::Concave => painter.add(get_concave_polygon_shape(
+                points,
+                Color32::GRAY,
+                Color32::DARK_GRAY,
+                stroke_w,
+            )),
+            PolygonType::Convex => painter.add(Shape::convex_polygon(points, fill_color, stroke)),
+        };
+
+        let radius = state.grid_size * Self::CONNECTION_SCALE;
         // Рисуем соединения (как раньше)
         (0..=self.typ.get_connections_number()).for_each(|i| {
             painter.circle_filled(
@@ -233,7 +218,7 @@ impl PrimitiveComponent {
                     vec![self.typ.get_connection_position_raw(i, state, &self.pos)],
                     state,
                 )[0],
-                state.grid_size * Self::CONNECTION_SCALE,
+                radius,
                 Color32::DARK_GRAY,
             );
         });
@@ -259,9 +244,9 @@ impl PrimitiveType {
     //
     fn get_and_gate_dimension_raw(n_inputs: usize) -> (i32, i32) {
         if n_inputs % 2 == 0 {
-            (2, (2 * n_inputs - 1) as i32)
+            (3, (2 * n_inputs - 1) as i32)
         } else {
-            (2, n_inputs as i32)
+            (3, n_inputs as i32)
         }
     }
 
@@ -315,7 +300,7 @@ impl PrimitiveType {
         let radius_x = state.grid_size - stroke_w / 2.0;
         let radius_y = height as f32 / 2.0 - stroke_w / 2.0;
         let pos = state.grid_to_screen(primitive_pos);
-        let center = pos + vec2(state.grid_size, height / 2.0);
+        let center = pos + vec2(2.0 * state.grid_size, height / 2.0);
 
         let n_points = 30;
         let mut points = (0..=n_points)
@@ -331,12 +316,11 @@ impl PrimitiveType {
         points
     }
 
-
     //
     // *** Or gate ***
     //
     fn get_or_gate_dimension_raw(n_inputs: usize) -> (i32, i32) {
-       return Self::get_and_gate_dimension_raw(n_inputs);
+        return Self::get_and_gate_dimension_raw(n_inputs);
     }
 
     fn get_or_gate_dock_cell_raw(
@@ -344,17 +328,7 @@ impl PrimitiveType {
         n_inputs: usize,
         primitive_pos: &GridPos,
     ) -> GridPos {
-        // Fixme
-        if connection_id < n_inputs as Id {
-            if n_inputs % 2 == 0 {
-                *primitive_pos + grid_pos(-1, 2 * connection_id as i32)
-            } else {
-                *primitive_pos + grid_pos(-1, connection_id as i32)
-            }
-        } else {
-            let raw_dim = Self::get_or_gate_dimension_raw(n_inputs);
-            *primitive_pos + grid_pos(raw_dim.0, raw_dim.1 / 2)
-        }
+        Self::get_and_gate_dock_cell_raw(connection_id, n_inputs, primitive_pos)
     }
 
     fn get_or_gate_connection_position_raw(
@@ -372,59 +346,103 @@ impl PrimitiveType {
         n_inputs: usize,
         primitive_pos: &GridPos,
     ) -> Vec<Pos2> {
-        let height = if n_inputs % 2 == 0 {
+        let grid_size = state.grid_size;
+        let height_factor = if n_inputs % 2 == 0 {
             (2 * n_inputs - 1) as f32
         } else {
             n_inputs as f32
-        } * state.grid_size;
-        let radius_x = state.grid_size - stroke_w / 2.0;
-        let radius_y = height / 2.0 - stroke_w / 2.0;
+        };
+        let height = height_factor * grid_size;
+
         let pos = state.grid_to_screen(primitive_pos);
-        let left_center = pos2(
-            pos.x,
-            pos.y + height / 2.0
-        );
-        let right_center = pos2(
-            pos.x + state.grid_size,
-            pos.y + height / 2.0
-        );
-        let n_points = 30;
+        let center_y = pos.y + height / 2.0;
+
+        // Configurable parameters
+        let tip_x_factor = 3.0; // Tip position multiplier
+        let curve_strength = 0.0; // Right curve bend strength (0.0-1.0)
+        let n_curve_points = 30; // Number of points per curve segment
+        let left_curve_strength = 1.0; // Left curve concavity strength
+
+        // Key points
+        let top_point = pos2(pos.x + stroke_w * 0.5, pos.y + stroke_w * 0.5);
+        let bottom_point = pos2(pos.x + stroke_w * 0.5, pos.y + height - stroke_w * 0.5);
+        let left_control = pos2(pos.x + grid_size * left_curve_strength, center_y);
+        let tip_point = pos2(pos.x + tip_x_factor * grid_size, center_y);
+        let middle_x = pos.x + 2.2 * grid_size;
+
         let mut points = Vec::new();
-        // Левая дуга: выпуклая влево, снизу вверх
-        for i in 0..=n_points {
-            let angle = -PI/2.0 + PI * (i as f32 / n_points as f32);
-            points.push(pos2(
-                left_center.x + radius_x * angle.cos(), // минус для выпуклости влево
-                left_center.y + radius_y * angle.sin()
-            ));
+
+        // Left concave curve (single quadratic Bezier from top to bottom)
+        for i in 0..=n_curve_points {
+            let t = i as f32 / n_curve_points as f32;
+            // Quadratic Bezier formula: P0 = top_point, P1 = left_control, P2 = bottom_point
+            let x = (1.0 - t).powi(2) * top_point.x
+                + 2.0 * (1.0 - t) * t * left_control.x
+                + t.powi(2) * bottom_point.x;
+            let y = (1.0 - t).powi(2) * top_point.y
+                + 2.0 * (1.0 - t) * t * left_control.y
+                + t.powi(2) * bottom_point.y;
+            points.push(pos2(x, y));
         }
-        // Правая дуга: выпуклая вправо, сверху вниз (в обратном порядке)
-        for i in (0..=n_points).rev() {
-            let angle = -PI/2.0 + PI * (i as f32 / n_points as f32);
-            points.push(pos2(
-                right_center.x + radius_x * angle.cos(),
-                right_center.y + radius_y * angle.sin()
-            ));
+
+        // Calculate control points for right curves
+        let bottom_control = pos2(
+            middle_x,
+            bottom_point.y + (tip_point.y - bottom_point.y) * curve_strength,
+        );
+
+        let top_control = pos2(
+            middle_x,
+            top_point.y + (tip_point.y - top_point.y) * curve_strength,
+        );
+
+        // Bottom right curve (from bottom point to tip)
+        for i in 1..=n_curve_points {
+            let t = i as f32 / n_curve_points as f32;
+            let x = (1.0 - t).powi(2) * bottom_point.x
+                + 2.0 * (1.0 - t) * t * bottom_control.x
+                + t.powi(2) * tip_point.x;
+            let y = (1.0 - t).powi(2) * bottom_point.y
+                + 2.0 * (1.0 - t) * t * bottom_control.y
+                + t.powi(2) * tip_point.y;
+            points.push(pos2(x, y));
         }
+
+        // Top right curve (from tip to top point)
+        for i in 1..=n_curve_points {
+            let t = i as f32 / n_curve_points as f32;
+            let x = (1.0 - t).powi(2) * tip_point.x
+                + 2.0 * (1.0 - t) * t * top_control.x
+                + t.powi(2) * top_point.x;
+            let y = (1.0 - t).powi(2) * tip_point.y
+                + 2.0 * (1.0 - t) * t * top_control.y
+                + t.powi(2) * top_point.y;
+            points.push(pos2(x, y));
+        }
+
         points
     }
 
     //
     // *** Common ***
     //
-    
+
     fn get_dimension_raw(&self) -> (i32, i32) {
         match self {
             Self::And(n_inputs) => Self::get_and_gate_dimension_raw(*n_inputs),
-            Self::Or(n_inputs) => Self::get_or_gate_dimension_raw(*n_inputs)
+            Self::Or(n_inputs) => Self::get_or_gate_dimension_raw(*n_inputs),
         }
     }
-    
+
     fn get_dock_cell_raw(&self, connection_id: Id, primitive_pos: &GridPos) -> GridPos {
         // TODO: remove Option here
         match self {
-            Self::And(n_inputs) =>  Self::get_and_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos),
-            Self::Or(n_inputs) =>  Self::get_or_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos),
+            Self::And(n_inputs) => {
+                Self::get_and_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
+            }
+            Self::Or(n_inputs) => {
+                Self::get_or_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
+            }
         }
     }
 
@@ -455,14 +473,43 @@ impl PrimitiveType {
         state: &FieldState,
         stroke_w: f32,
         primitive_pos: &GridPos,
-    ) -> Vec<Pos2> {
+    ) -> (PolygonType, Vec<Pos2>) {
         match self {
-            Self::And(n_inputs) => {
-                Self::get_and_gate_polygon_points_raw(state, stroke_w, *n_inputs, primitive_pos)
-            }
-            Self::Or(n_inputs) => {
-                Self::get_or_gate_polygon_points_raw(state, stroke_w, *n_inputs, primitive_pos)
-            }
+            Self::And(n_inputs) => (
+                PolygonType::Convex,
+                Self::get_and_gate_polygon_points_raw(state, stroke_w, *n_inputs, primitive_pos),
+            ),
+            Self::Or(n_inputs) => (
+                PolygonType::Concave,
+                Self::get_or_gate_polygon_points_raw(state, stroke_w, *n_inputs, primitive_pos),
+            ),
         }
     }
+
+    fn get_or_gate_lines_raw(
+        state: &FieldState,
+        n_inputs: usize,
+        primitive_pos: &GridPos,
+    ) -> Vec<[Pos2; 2]> {
+        let mut result = Vec::with_capacity(n_inputs);
+        for i in 0..n_inputs {
+            let p0: Pos2 =
+                Self::get_or_gate_connection_position_raw(i, state, n_inputs, primitive_pos);
+            let p1: Pos2 = p0 + vec2(state.grid_size, 0.0);
+            result.push([p0, p1]);
+        }
+        result
+    }
+
+    fn get_lines(&self, state: &FieldState, primitive_pos: &GridPos) -> Vec<[Pos2; 2]> {
+        match self {
+            Self::And(_n_inputs) => vec![],
+            Self::Or(n_inputs) => Self::get_or_gate_lines_raw(state, *n_inputs, primitive_pos),
+        }
+    }
+}
+
+enum PolygonType {
+    Concave,
+    Convex,
 }

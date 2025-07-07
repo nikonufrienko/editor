@@ -12,6 +12,7 @@ pub struct Locale {
     pub view: &'static str,
     pub cells: &'static str,
     pub dots: &'static str,
+    pub empty: &'static str,
     pub language: &'static str,
     pub components: &'static str,
     pub saving_file: &'static str,
@@ -29,8 +30,9 @@ pub const RU_LOCALE: Locale = Locale {
     open: "Открыть",
     file_save_error: "Ошибка сохранения файла",
     grid: "Сетка",
-    cells: "Клетки", // Сетка в клеточку
-    dots: "Точки",   // Сетка в виде точек
+    cells: "Клетки",
+    dots: "Точки",
+    empty: "Пустая",
     view: "Вид",
     language: "Язык",
     components: "Компоненты",
@@ -52,6 +54,7 @@ pub const EN_LOCALE: Locale = Locale {
     view: "View",
     cells: "Cells",
     dots: "Dots",
+    empty: "Empty",
     language: "Language",
     components: "Components",
     saving_file: "Saving file...",

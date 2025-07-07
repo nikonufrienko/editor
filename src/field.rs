@@ -16,6 +16,7 @@ use crate::{
 pub enum GridType {
     Dots,
     Cells,
+    None,
 }
 
 pub struct FieldState {
@@ -203,6 +204,7 @@ impl Field {
                     }
                 }
             }
+            GridType::None => {}
         }
 
         shapes.push(Shape::rect_stroke(

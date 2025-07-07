@@ -56,7 +56,7 @@ pub fn get_component_lib() -> Vec<ComponentLibEntry> {
             }),
         },
         ComponentLibEntry {
-            name: "And2",
+            name: "AND2",
             component: Component::Primitive(PrimitiveComponent {
                 typ: PrimitiveType::And(2),
                 pos: grid_pos(1, 1), // Default preview pos
@@ -64,7 +64,7 @@ pub fn get_component_lib() -> Vec<ComponentLibEntry> {
             }),
         },
         ComponentLibEntry {
-            name: "And3",
+            name: "AND3",
             component: Component::Primitive(PrimitiveComponent {
                 typ: PrimitiveType::And(3),
                 pos: grid_pos(1, 1), // Default preview pos
@@ -72,15 +72,15 @@ pub fn get_component_lib() -> Vec<ComponentLibEntry> {
             }),
         },
         ComponentLibEntry {
-            name: "And9",
+            name: "AND4",
             component: Component::Primitive(PrimitiveComponent {
-                typ: PrimitiveType::And(9),
+                typ: PrimitiveType::And(4),
                 pos: grid_pos(1, 1), // Default preview pos
                 rotation: crate::grid_db::Rotation::ROT0,
             }),
         },
         ComponentLibEntry {
-            name: "Or",
+            name: "OR2",
             component: Component::Primitive(PrimitiveComponent {
                 typ: PrimitiveType::Or(2),
                 pos: grid_pos(1, 1), // Default preview pos
@@ -88,9 +88,9 @@ pub fn get_component_lib() -> Vec<ComponentLibEntry> {
             }),
         },
         ComponentLibEntry {
-            name: "Or",
+            name: "OR4",
             component: Component::Primitive(PrimitiveComponent {
-                typ: PrimitiveType::Or(9),
+                typ: PrimitiveType::Or(4),
                 pos: grid_pos(1, 1), // Default preview pos
                 rotation: crate::grid_db::Rotation::ROT0,
             }),

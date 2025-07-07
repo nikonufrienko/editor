@@ -19,6 +19,7 @@ mod preview;
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     let options = eframe::NativeOptions {
+        multisampling: 8,
         viewport: egui::ViewportBuilder::default().with_drag_and_drop(true),
         ..Default::default()
     };
@@ -78,7 +79,6 @@ fn main() {
 struct EditorApp {
     field: Field,
     preview_window: PreviewPanel,
-    //errors: Arc<Mutex<Vec<String>>>, // Errors
     locale: locale::LocaleType,
     file_manager: FileManager,
 }
@@ -88,7 +88,6 @@ impl EditorApp {
         EditorApp {
             field: Field::new(),
             preview_window: PreviewPanel::new(),
-            //errors: Arc::new(Mutex::new(vec![])),
             locale: get_system_default_locale(),
             file_manager: FileManager::new(),
         }
@@ -122,6 +121,7 @@ impl eframe::App for EditorApp {
                                 locale.cells,
                             );
                             ui.radio_value(&mut self.field.grid_type, GridType::Dots, locale.dots);
+                            ui.radio_value(&mut self.field.grid_type, GridType::None, locale.empty);
                         });
                         ui.menu_button(locale.language, |ui| {
                             for other_local in SUPPORTED_LOCALES {
@@ -186,8 +186,6 @@ fn panel_left_switch(ui: &mut egui::Ui, is_expanded: &mut bool) {
             egui::StrokeKind::Inside,
         );
     }
-
-    //ui.painter().rect_filled(rect, visuals.menu_corner_radius / 2.0, stroke, egui::StrokeKind::Middle);
 
     if resp.clicked() {
         *is_expanded = !*is_expanded;

@@ -1,8 +1,7 @@
 use egui::{CursorIcon, LayerId, Pos2, Rect, RichText, Sense, Vec2, vec2};
-use once_cell::sync::Lazy;
 
 use crate::{
-    component_lib::{self, ComponentLibEntry, get_component_lib},
+    component_lib::{ComponentLibEntry, get_component_lib},
     field::Field,
     grid_db::Component,
     locale::Locale,
