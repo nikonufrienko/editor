@@ -1,6 +1,5 @@
 [build]
 filehash = false
-release = true 
 
 [serve]
 filehash = false

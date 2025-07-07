@@ -304,7 +304,7 @@ impl GridBD {
     }
 
     pub fn dump_to_json(&self) -> Option<String> {
-        serde_json::to_string(&GridBdDump {
+        serde_json::to_string_pretty(&GridBdDump {
             components: self.components.clone(),
             nets: self.nets.clone(),
         })

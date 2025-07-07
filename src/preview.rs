@@ -2,7 +2,7 @@ use egui::{CursorIcon, LayerId, Pos2, Rect, RichText, Sense, Vec2, vec2};
 use once_cell::sync::Lazy;
 
 use crate::{
-    component_lib::{AND2, AND3, AND9, EXAMPLE_UNIT},
+    component_lib::{self, ComponentLibEntry, get_component_lib},
     field::Field,
     grid_db::Component,
     locale::Locale,
@@ -10,8 +10,8 @@ use crate::{
 
 pub struct PreviewPanel {
     drag_vec: Vec2,
-    showcase: Vec<&'static Lazy<Component>>,
     pub is_expanded: bool,
+    component_lib: Vec<ComponentLibEntry>,
 }
 
 pub enum DragComponentResponse {
@@ -31,7 +31,7 @@ impl PreviewPanel {
         Self {
             is_expanded: true,
             drag_vec: vec2(0.0, 0.0),
-            showcase: vec![&EXAMPLE_UNIT, &AND2, &AND3, &AND9],
+            component_lib: get_component_lib(),
         }
     }
 
@@ -42,12 +42,13 @@ impl PreviewPanel {
         field_scale: f32,
         i: usize,
     ) -> DragComponentResponse {
+        let comp = &self.component_lib[i].component;
         let mut drag_response = DragComponentResponse::None;
         let mut rect = ui.available_rect_before_wrap();
         rect.set_height(ui.available_width()); // TODO: optimize it
         let response = ui.allocate_rect(rect, Sense::all());
         let painter = ui.painter().with_clip_rect(rect);
-        let comp = self.showcase[i];
+        let comp = comp;
         comp.draw_preview(&rect, &painter);
         let field_grid_size = field_scale * Field::BASE_GRID_SIZE;
         if let Some(hover_pos) = response.hover_pos() {
@@ -117,7 +118,8 @@ impl PreviewPanel {
                         egui::CollapsingHeader::new(locale.common_components)
                             .default_open(true)
                             .show(ui, |ui| {
-                                for i in 0..self.showcase.len() {
+                                for i in 0..self.component_lib.len() {
+                                    ui.label(self.component_lib[i].name);
                                     egui::Frame::default()
                                         .stroke(ui.visuals().window_stroke)
                                         .corner_radius(5.0)

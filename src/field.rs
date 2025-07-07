@@ -436,13 +436,27 @@ impl ConnectionBuilder {
         }
     }
 
+    fn draw_anchors(&self, state: &FieldState, painter: &egui::Painter) {
+        self.anchors.iter().for_each(|a| {
+            let r1 = Rect::from_min_size(
+                state.grid_to_screen(a),
+                vec2(state.grid_size, state.grid_size),
+            )
+            .scale_from_center(0.8);
+
+            let r2 = r1.scale_from_center(0.5);
+            let stroke = Stroke::new(state.grid_size * 0.1, Color32::GRAY);
+            painter.line_segment([r1.left_top(), r2.left_top()], stroke);
+            painter.line_segment([r1.left_bottom(), r2.left_bottom()], stroke);
+            painter.line_segment([r1.right_top(), r2.right_top()], stroke);
+            painter.line_segment([r1.right_bottom(), r2.right_bottom()], stroke);
+        });
+    }
+
     fn draw(&self, bd: &GridBD, state: &FieldState, painter: &egui::Painter) {
         if let Some(point) = &self.point {
             if let Some(comp) = bd.get_component(&point.component_id) {
-                self.anchors.iter().for_each(|a| {
-                    let shape = filled_cells(state, a, 1, 1, Color32::RED);
-                    painter.add(shape);
-                });
+                self.draw_anchors(state, painter);
                 let p1 = comp
                     .get_connection_position(point.connection_id, state)
                     .unwrap();
