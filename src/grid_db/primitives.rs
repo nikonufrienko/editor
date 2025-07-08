@@ -229,6 +229,7 @@ impl PrimitiveComponent {
 pub enum PrimitiveType {
     And(usize),
     Or(usize),
+    Input,
 }
 
 impl PrimitiveType {
@@ -236,6 +237,7 @@ impl PrimitiveType {
         match self {
             Self::And(n_inputs) => *n_inputs + 1,
             Self::Or(n_inputs) => *n_inputs + 1,
+            Self::Input => 1,
         }
     }
 
@@ -423,6 +425,52 @@ impl PrimitiveType {
         points
     }
 
+    fn get_or_gate_lines_raw(
+        state: &FieldState,
+        n_inputs: usize,
+        primitive_pos: &GridPos,
+    ) -> Vec<[Pos2; 2]> {
+        let mut result = Vec::with_capacity(n_inputs);
+        for i in 0..n_inputs {
+            let p0: Pos2 =
+                Self::get_or_gate_connection_position_raw(i, state, n_inputs, primitive_pos);
+            let p1: Pos2 = p0 + vec2(state.grid_size, 0.0);
+            result.push([p0, p1]);
+        }
+        result
+    }
+
+    //
+    // *** Input ***
+    //
+    fn get_input_dock_cell_raw(primitive_pos: &GridPos) -> GridPos {
+        return *primitive_pos + grid_pos(2, 0);
+    }
+
+    fn get_input_polygon_points_raw( &self,
+        state: &FieldState,
+        stroke_w: f32,
+        primitive_pos: &GridPos
+    ) -> Vec<Pos2> {
+        let pos = state.grid_to_screen(primitive_pos);
+        let p0 = pos + vec2(stroke_w * 0.5, stroke_w * 0.5);
+        let p1 = pos + vec2(1.0 * state.grid_size - stroke_w * 0.5, stroke_w * 0.5);
+        let p2 = pos + vec2(2.0 * state.grid_size - stroke_w * 0.5, 0.5 * state.grid_size);
+        let p3 = pos + vec2(1.0 * state.grid_size - stroke_w * 0.5, state.grid_size - stroke_w * 0.5);
+        let p4 = pos + vec2(stroke_w * 0.5, state.grid_size - stroke_w * 0.5);
+
+        return vec![p0, p1, p2, p3, p4];
+    }
+
+    fn get_input_connection_position_raw(
+        &self,
+        connection_id: Id,
+        state: &FieldState,
+        primitive_pos: &GridPos,
+    ) -> Pos2 {
+        state.grid_to_screen(primitive_pos) + vec2(2.0 * state.grid_size, 0.5 * state.grid_size)
+    }
+
     //
     // *** Common ***
     //
@@ -431,18 +479,15 @@ impl PrimitiveType {
         match self {
             Self::And(n_inputs) => Self::get_and_gate_dimension_raw(*n_inputs),
             Self::Or(n_inputs) => Self::get_or_gate_dimension_raw(*n_inputs),
+            Self::Input => (2, 1) // Constant ???
         }
     }
 
     fn get_dock_cell_raw(&self, connection_id: Id, primitive_pos: &GridPos) -> GridPos {
-        // TODO: remove Option here
         match self {
-            Self::And(n_inputs) => {
-                Self::get_and_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
-            }
-            Self::Or(n_inputs) => {
-                Self::get_or_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
-            }
+            Self::And(n_inputs) => Self::get_and_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos),
+            Self::Or(n_inputs) => Self::get_or_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos),
+            Self::Input => Self::get_input_dock_cell_raw(primitive_pos),
         }
     }
 
@@ -465,6 +510,7 @@ impl PrimitiveType {
                 *n_inputs,
                 primitive_pos,
             ),
+            Self::Input => Self::get_input_connection_position_raw(&self, connection_id, state, primitive_pos)
         }
     }
 
@@ -483,28 +529,14 @@ impl PrimitiveType {
                 PolygonType::Concave,
                 Self::get_or_gate_polygon_points_raw(state, stroke_w, *n_inputs, primitive_pos),
             ),
+            Self::Input => (PolygonType::Convex, Self::get_input_polygon_points_raw(&self, state, stroke_w, primitive_pos))
         }
-    }
-
-    fn get_or_gate_lines_raw(
-        state: &FieldState,
-        n_inputs: usize,
-        primitive_pos: &GridPos,
-    ) -> Vec<[Pos2; 2]> {
-        let mut result = Vec::with_capacity(n_inputs);
-        for i in 0..n_inputs {
-            let p0: Pos2 =
-                Self::get_or_gate_connection_position_raw(i, state, n_inputs, primitive_pos);
-            let p1: Pos2 = p0 + vec2(state.grid_size, 0.0);
-            result.push([p0, p1]);
-        }
-        result
     }
 
     fn get_lines(&self, state: &FieldState, primitive_pos: &GridPos) -> Vec<[Pos2; 2]> {
         match self {
-            Self::And(_n_inputs) => vec![],
             Self::Or(n_inputs) => Self::get_or_gate_lines_raw(state, *n_inputs, primitive_pos),
+            _ => vec![]
         }
     }
 }

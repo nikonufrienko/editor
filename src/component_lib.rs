@@ -95,5 +95,13 @@ pub fn get_component_lib() -> Vec<ComponentLibEntry> {
                 rotation: crate::grid_db::Rotation::ROT0,
             }),
         },
+        ComponentLibEntry {
+            name: "Input",
+            component: Component::Primitive(PrimitiveComponent {
+                typ: PrimitiveType::Input,
+                pos: grid_pos(1, 1), // Default preview pos
+                rotation: crate::grid_db::Rotation::ROT0,
+            }),
+        },
     ]
 }

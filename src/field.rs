@@ -207,14 +207,14 @@ impl Field {
             GridType::None => {}
         }
 
-        shapes.push(Shape::rect_stroke(
+        ui.painter().with_clip_rect(self.state.rect).extend(shapes);
+
+        ui.painter().add(Shape::rect_stroke(
             self.state.rect,
             0.0,
-            Stroke::new(0.1, Color32::WHITE),
+            ui.visuals().window_stroke,
             StrokeKind::Outside,
         ));
-
-        ui.painter().with_clip_rect(self.state.rect).extend(shapes);
     }
 
     // Update state of field
