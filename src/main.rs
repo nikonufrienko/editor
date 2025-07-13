@@ -20,6 +20,7 @@ mod preview;
 fn main() {
     let options = eframe::NativeOptions {
         multisampling: 8,
+        dithering: false,
         viewport: egui::ViewportBuilder::default().with_drag_and_drop(true),
         ..Default::default()
     };
@@ -37,7 +38,11 @@ fn main() {
     // Redirect `log` message to `console.log` and friends:
     //eframe::WebLogger::init(log::LevelFilter::Debug).ok();
 
-    let web_options = eframe::WebOptions::default();
+    let web_options = eframe::WebOptions {
+        dithering: false,
+        depth_buffer: 8,
+        ..Default::default()
+    };
 
     wasm_bindgen_futures::spawn_local(async {
         let document = web_sys::window()
@@ -100,6 +105,7 @@ impl eframe::App for EditorApp {
         let foreground: LayerId = LayerId::new(egui::Order::Foreground, Id::new("foreground"));
         self.file_manager
             .update(ctx, locale, &mut self.field.grid_db);
+        ctx.tessellation_options_mut(|options| options.feathering = false);
         egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 egui::menu::bar(ui, |ui| {

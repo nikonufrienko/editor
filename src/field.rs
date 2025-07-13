@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::{
     grid_db::{
-        Component, ComponentAction, GridBD, GridBDConnectionPoint, GridPos, Id, Net,
+        Component, ComponentAction, GridBD, GridBDConnectionPoint, GridPos, Id, LodLevel, Net,
         RotationDirection, grid_pos, grid_rect,
     },
     preview::DragComponentResponse,
@@ -44,6 +44,16 @@ impl FieldState {
         GridPos {
             x: grid_x.floor() as i32,
             y: grid_y.floor() as i32,
+        }
+    }
+
+    pub fn lod_level(&self) -> LodLevel {
+        if self.scale <= Field::LOD_LEVEL_MIN_SCALE {
+            LodLevel::Min
+        } else if self.scale <= Field::LOD_LEVEL_MID_SCALE {
+            LodLevel::Mid
+        } else {
+            LodLevel::Max
         }
     }
 }
@@ -108,12 +118,12 @@ impl Field {
     pub const POINT_MIN_SCALE: f32 = 2.0;
     pub const GRID_MIN_SCALE: f32 = 0.6;
     pub const MIN_DISPLAY_TEXT_SIZE: f32 = 3.0;
-    pub const LOD_LEVEL0_SCALE: f32 = 0.5;
+    pub const LOD_LEVEL_MID_SCALE: f32 = 1.0; // ??
+    pub const LOD_LEVEL_MIN_SCALE: f32 = 0.5;
 
     pub fn new() -> Self {
         let scale = (Self::MAX_SCALE / 40.0).max(Self::MIN_SCALE);
         let db = GridBD::new();
-
         Self {
             state: FieldState {
                 scale: scale,
@@ -149,7 +159,7 @@ impl Field {
             self.state.grid_size - (self.state.offset.y.abs() % self.state.grid_size)
         };
 
-        let stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 10));
+        let stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 2));
         let mut shapes = vec![];
 
         match self.grid_type {
@@ -839,7 +849,7 @@ impl DragManager {
                 } else if response.clicked() {
                     self.state = DragState::Idle;
                 }
-            } // TODO
+            }
             DragState::ComponentDragged { id, grab_ofs } => {
                 if response.dragged() {
                     ui.ctx()

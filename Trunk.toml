@@ -1,7 +1,9 @@
 [build]
 filehash = false
 release = true
+no_sri = true
 
 [serve]
 filehash = false
+no_sri = true
 port = 8080

@@ -1,13 +1,34 @@
-use std::f32::consts::PI;
+use std::{
+    cell::{LazyCell, RefCell},
+    f32::consts::PI,
+    sync::Arc,
+};
 
-use egui::{Color32, Painter, Pos2, Shape, Stroke, pos2, vec2};
+use egui::{
+    Color32, Mesh, Painter, Pos2, Shape, Stroke,
+    ahash::{HashMap, HashMapExt},
+    emath::TSTransform,
+    pos2, vec2,
+};
 use serde::{Deserialize, Serialize};
 
-use crate::{field::FieldState, grid_db::get_concave_polygon_shape};
+use crate::{
+    field::{Field, FieldState},
+    grid_db::tesselate_polygon,
+};
 
 use super::{ComponentAction, GridPos, Id, grid_pos};
 
-#[derive(Clone, Serialize, Deserialize)]
+const STROKE_SCALE: f32 = 0.1;
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+pub enum LodLevel {
+    Max,
+    Mid,
+    Min, // Minimal quality
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, Hash, PartialEq, Eq, Debug)]
 pub enum Rotation {
     ROT0,
     ROT90,
@@ -187,60 +208,64 @@ impl PrimitiveComponent {
             color: stroke_color,
             width: stroke_w,
         };
-        self.typ
-            .get_lines(state, &self.pos)
-            .iter()
-            .for_each(|segment| {
-                let rotated = self.apply_rotation(segment.to_vec(), state);
-                painter.line_segment([rotated[0], rotated[1]], stroke);
-            });
 
-        // Получаем точки полигона и применяем вращение
-        let (polygon_type, raw_points) =
-            self.typ.get_polygon_points_raw(state, stroke_w, &self.pos);
-        let points: Vec<Pos2> = self.apply_rotation(raw_points, state);
-
-        match polygon_type {
-            PolygonType::Concave => painter.add(get_concave_polygon_shape(
-                points,
-                Color32::GRAY,
-                Color32::DARK_GRAY,
-                stroke_w,
-            )),
-            PolygonType::Convex => painter.add(Shape::convex_polygon(points, fill_color, stroke)),
-        };
-
-        let radius = state.grid_size * Self::CONNECTION_SCALE;
-        // Рисуем соединения (как раньше)
-        (0..=self.typ.get_connections_number()).for_each(|i| {
-            painter.circle_filled(
-                self.apply_rotation(
-                    vec![self.typ.get_connection_position_raw(i, state, &self.pos)],
-                    state,
-                )[0],
-                radius,
-                Color32::DARK_GRAY,
-            );
+        let lod_level = state.lod_level();
+        // Draw lines:
+        if state.scale > Field::LOD_LEVEL_MIN_SCALE {
+            self.typ
+                .get_lines(state, &self.pos)
+                .iter()
+                .for_each(|segment| {
+                    let rotated = self.apply_rotation(segment.to_vec(), state);
+                    painter.line(rotated, stroke);
+                });
+        }
+        let mut shape = Shape::Mesh(get_cached_mesh(self.typ, self.rotation, lod_level));
+        shape.transform(TSTransform {
+            scaling: state.grid_size,
+            translation: state.grid_to_screen(&self.pos).to_vec2(),
         });
+        painter.add(shape);
+
+        // Draw connections:
+        if state.scale > Field::LOD_LEVEL_MIN_SCALE {
+            let radius = state.grid_size * Self::CONNECTION_SCALE;
+            (0..self.typ.get_connections_number()).for_each(|i| {
+                if self.typ.is_inverted_connection(i) {
+                    painter.circle(
+                        self.apply_rotation(
+                            vec![self.typ.get_connection_position_raw(i, state, &self.pos)],
+                            state,
+                        )[0],
+                        radius * 2.0,
+                        fill_color,
+                        stroke,
+                    );
+                } else {
+                    painter.circle_filled(
+                        self.apply_rotation(
+                            vec![self.typ.get_connection_position_raw(i, state, &self.pos)],
+                            state,
+                        )[0],
+                        radius,
+                        stroke_color,
+                    );
+                }
+            });
+        }
     }
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub enum PrimitiveType {
     And(usize),
     Or(usize),
+    Not,
     Input,
+    Output,
 }
 
 impl PrimitiveType {
-    pub fn get_connections_number(&self) -> usize {
-        match self {
-            Self::And(n_inputs) => *n_inputs + 1,
-            Self::Or(n_inputs) => *n_inputs + 1,
-            Self::Input => 1,
-        }
-    }
-
     //
     // *** And gate ***
     //
@@ -288,23 +313,22 @@ impl PrimitiveType {
         }
     }
 
-    fn get_and_gate_polygon_points_raw(
-        state: &FieldState,
-        stroke_w: f32,
-        n_inputs: usize,
-        primitive_pos: &GridPos,
-    ) -> Vec<Pos2> {
+    fn get_and_gate_polygon_points_raw(n_inputs: usize, lod_level: LodLevel) -> Vec<Pos2> {
+        let stroke_w = STROKE_SCALE;
         let height = if n_inputs % 2 == 0 {
             (2 * n_inputs - 1) as f32
         } else {
             n_inputs as f32
-        } * state.grid_size;
-        let radius_x = state.grid_size - stroke_w / 2.0;
+        };
+        let radius_x = 1.0 - stroke_w / 2.0;
         let radius_y = height as f32 / 2.0 - stroke_w / 2.0;
-        let pos = state.grid_to_screen(primitive_pos);
-        let center = pos + vec2(2.0 * state.grid_size, height / 2.0);
+        let center = vec2(2.0, height / 2.0);
 
-        let n_points = 30;
+        let n_points = match lod_level {
+            LodLevel::Max => 30,
+            LodLevel::Mid => 5,
+            LodLevel::Min => 2,
+        }; // Number of points per curve segment
         let mut points = (0..=n_points)
             .map(|i| {
                 let angle = -PI / 2.0 + PI * (i as f32 / n_points as f32);
@@ -313,8 +337,8 @@ impl PrimitiveType {
                 Pos2::new(x, y)
             })
             .collect::<Vec<_>>();
-        points.insert(0, pos + vec2(stroke_w / 2.0, stroke_w / 2.0));
-        points.insert(0, pos + vec2(stroke_w / 2.0, height - stroke_w / 2.0));
+        points.insert(0, pos2(stroke_w / 2.0, stroke_w / 2.0));
+        points.insert(0, pos2(stroke_w / 2.0, height - stroke_w / 2.0));
         points
     }
 
@@ -342,13 +366,11 @@ impl PrimitiveType {
         Self::get_and_gate_connection_position_raw(connection_id, state, n_inputs, primitive_pos)
     }
 
-    fn get_or_gate_polygon_points_raw(
-        state: &FieldState,
-        stroke_w: f32,
-        n_inputs: usize,
-        primitive_pos: &GridPos,
-    ) -> Vec<Pos2> {
-        let grid_size = state.grid_size;
+    fn get_or_gate_polygon_points_raw(n_inputs: usize, lod_level: LodLevel) -> Vec<Pos2> {
+        let grid_size = 1.0;
+        let pos = pos2(0.0, 0.0);
+        let stroke_w = STROKE_SCALE;
+        let grid_size = grid_size;
         let height_factor = if n_inputs % 2 == 0 {
             (2 * n_inputs - 1) as f32
         } else {
@@ -356,13 +378,16 @@ impl PrimitiveType {
         };
         let height = height_factor * grid_size;
 
-        let pos = state.grid_to_screen(primitive_pos);
         let center_y = pos.y + height / 2.0;
 
         // Configurable parameters
         let tip_x_factor = 3.0; // Tip position multiplier
         let curve_strength = 0.0; // Right curve bend strength (0.0-1.0)
-        let n_curve_points = 30; // Number of points per curve segment
+        let n_curve_points = match lod_level {
+            LodLevel::Max => 30,
+            LodLevel::Mid => 5,
+            LodLevel::Min => 2,
+        }; // Number of points per curve segment
         let left_curve_strength = 1.0; // Left curve concavity strength
 
         // Key points
@@ -429,13 +454,13 @@ impl PrimitiveType {
         state: &FieldState,
         n_inputs: usize,
         primitive_pos: &GridPos,
-    ) -> Vec<[Pos2; 2]> {
+    ) -> Vec<Vec<Pos2>> {
         let mut result = Vec::with_capacity(n_inputs);
         for i in 0..n_inputs {
             let p0: Pos2 =
                 Self::get_or_gate_connection_position_raw(i, state, n_inputs, primitive_pos);
             let p1: Pos2 = p0 + vec2(state.grid_size, 0.0);
-            result.push([p0, p1]);
+            result.push(vec![p0, p1]);
         }
         result
     }
@@ -447,24 +472,23 @@ impl PrimitiveType {
         return *primitive_pos + grid_pos(2, 0);
     }
 
-    fn get_input_polygon_points_raw( &self,
-        state: &FieldState,
-        stroke_w: f32,
-        primitive_pos: &GridPos
-    ) -> Vec<Pos2> {
-        let pos = state.grid_to_screen(primitive_pos);
-        let p0 = pos + vec2(stroke_w * 0.5, stroke_w * 0.5);
-        let p1 = pos + vec2(1.0 * state.grid_size - stroke_w * 0.5, stroke_w * 0.5);
-        let p2 = pos + vec2(2.0 * state.grid_size - stroke_w * 0.5, 0.5 * state.grid_size);
-        let p3 = pos + vec2(1.0 * state.grid_size - stroke_w * 0.5, state.grid_size - stroke_w * 0.5);
-        let p4 = pos + vec2(stroke_w * 0.5, state.grid_size - stroke_w * 0.5);
+    fn get_input_polygon_points_raw() -> Vec<Pos2> {
+        let pos = pos2(0.0, 0.0);
+        let grid_size = 1.0;
+        let stroke_w = STROKE_SCALE;
 
-        return vec![p0, p1, p2, p3, p4];
+        let p0 = pos + vec2(stroke_w * 0.5, stroke_w * 0.5);
+        let p1 = pos + vec2(grid_size * 1.5 - stroke_w * 0.5, stroke_w * 0.5);
+        let p2 = pos + vec2(2.0 * grid_size - stroke_w * 0.5, 0.5 * grid_size);
+        let p3 = pos + vec2(grid_size * 1.5 - stroke_w * 0.5, grid_size - stroke_w * 0.5);
+        let p4 = pos + vec2(stroke_w * 0.5, grid_size - stroke_w * 0.5);
+        let p5 = pos + vec2(stroke_w * 0.5 + grid_size * 0.5, grid_size * 0.5);
+
+        return vec![p0, p1, p2, p3, p4, p5];
     }
 
     fn get_input_connection_position_raw(
-        &self,
-        connection_id: Id,
+        _connection_id: Id,
         state: &FieldState,
         primitive_pos: &GridPos,
     ) -> Pos2 {
@@ -472,22 +496,103 @@ impl PrimitiveType {
     }
 
     //
+    // *** Output ***
+    //
+    fn get_output_dock_cell_raw(primitive_pos: &GridPos) -> GridPos {
+        return *primitive_pos + grid_pos(-1, 0);
+    }
+
+    fn get_output_polygon_points_raw() -> Vec<Pos2> {
+        Self::get_input_polygon_points_raw()
+    }
+
+    fn get_output_connection_position_raw(
+        _connection_id: Id,
+        state: &FieldState,
+        primitive_pos: &GridPos,
+    ) -> Pos2 {
+        state.grid_to_screen(primitive_pos) + vec2(0.0, 0.5 * state.grid_size)
+    }
+
+    fn get_output_lines_raw(state: &FieldState, primitive_pos: &GridPos) -> Vec<Vec<Pos2>> {
+        vec![vec![
+            state.grid_to_screen(primitive_pos) + vec2(0.0, 0.5 * state.grid_size),
+            state.grid_to_screen(primitive_pos)
+                + vec2(0.5 * state.grid_size, 0.5 * state.grid_size),
+        ]]
+    }
+
+    //
+    // *** Not ***
+    //
+    fn get_not_dock_cell_raw(connection_id: Id, primitive_pos: &GridPos) -> GridPos {
+        if connection_id == 0 {
+            *primitive_pos + grid_pos(-1, 1)
+        } else {
+            *primitive_pos + grid_pos(3, 1)
+        }
+    }
+
+    fn get_not_polygon_points_raw() -> Vec<Pos2> {
+        let pos = pos2(0.0, 0.0);
+        let stroke_w = STROKE_SCALE;
+        let grid_size = 1.0;
+        let p0 = pos + vec2(stroke_w * 0.5, stroke_w * 0.5);
+        let p1 = pos + vec2(3.0 * grid_size - stroke_w * 0.5, grid_size * 1.5);
+        let p2 = pos + vec2(stroke_w * 0.5, 3.0 * grid_size - stroke_w * 0.5);
+        return vec![p0, p1, p2];
+    }
+
+    fn get_not_connection_position_raw(
+        connection_id: Id,
+        state: &FieldState,
+        primitive_pos: &GridPos,
+    ) -> Pos2 {
+        if connection_id == 0 {
+            state.grid_to_screen(primitive_pos) + vec2(0.0, state.grid_size + 0.5 * state.grid_size)
+        } else {
+            state.grid_to_screen(primitive_pos)
+                + vec2(
+                    3.0 * state.grid_size,
+                    state.grid_size + 0.5 * state.grid_size,
+                )
+        }
+    }
+
+    //
     // *** Common ***
     //
+    pub fn get_connections_number(&self) -> usize {
+        match self {
+            Self::And(n_inputs) => *n_inputs + 1,
+            Self::Or(n_inputs) => *n_inputs + 1,
+            Self::Not => 2,
+            Self::Input => 1,
+            Self::Output => 1,
+        }
+    }
 
     fn get_dimension_raw(&self) -> (i32, i32) {
         match self {
             Self::And(n_inputs) => Self::get_and_gate_dimension_raw(*n_inputs),
             Self::Or(n_inputs) => Self::get_or_gate_dimension_raw(*n_inputs),
-            Self::Input => (2, 1) // Constant ???
+            Self::Not => (3, 3),
+            Self::Input => (2, 1),
+            Self::Output => (2, 1),
         }
     }
 
     fn get_dock_cell_raw(&self, connection_id: Id, primitive_pos: &GridPos) -> GridPos {
         match self {
-            Self::And(n_inputs) => Self::get_and_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos),
-            Self::Or(n_inputs) => Self::get_or_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos),
+            Self::And(n_inputs) => {
+                Self::get_and_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
+            }
+            Self::Or(n_inputs) => {
+                Self::get_or_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
+            }
+            Self::Not => Self::get_not_dock_cell_raw(connection_id, primitive_pos),
             Self::Input => Self::get_input_dock_cell_raw(primitive_pos),
+            Self::Output => Self::get_output_dock_cell_raw(primitive_pos),
         }
     }
 
@@ -510,38 +615,78 @@ impl PrimitiveType {
                 *n_inputs,
                 primitive_pos,
             ),
-            Self::Input => Self::get_input_connection_position_raw(&self, connection_id, state, primitive_pos)
+            Self::Not => Self::get_not_connection_position_raw(connection_id, state, primitive_pos),
+            Self::Input => {
+                Self::get_input_connection_position_raw(connection_id, state, primitive_pos)
+            }
+            Self::Output => {
+                Self::get_output_connection_position_raw(connection_id, state, primitive_pos)
+            }
         }
     }
 
-    fn get_polygon_points_raw(
-        &self,
-        state: &FieldState,
-        stroke_w: f32,
-        primitive_pos: &GridPos,
-    ) -> (PolygonType, Vec<Pos2>) {
+    fn get_polygon_points_raw(&self, lod_level: LodLevel) -> Vec<Pos2> {
         match self {
-            Self::And(n_inputs) => (
-                PolygonType::Convex,
-                Self::get_and_gate_polygon_points_raw(state, stroke_w, *n_inputs, primitive_pos),
-            ),
-            Self::Or(n_inputs) => (
-                PolygonType::Concave,
-                Self::get_or_gate_polygon_points_raw(state, stroke_w, *n_inputs, primitive_pos),
-            ),
-            Self::Input => (PolygonType::Convex, Self::get_input_polygon_points_raw(&self, state, stroke_w, primitive_pos))
+            Self::And(n_inputs) => Self::get_and_gate_polygon_points_raw(*n_inputs, lod_level),
+            Self::Or(n_inputs) => Self::get_or_gate_polygon_points_raw(*n_inputs, lod_level),
+            Self::Input => Self::get_input_polygon_points_raw(),
+            Self::Output => Self::get_output_polygon_points_raw(),
+            Self::Not => Self::get_not_polygon_points_raw(),
         }
     }
 
-    fn get_lines(&self, state: &FieldState, primitive_pos: &GridPos) -> Vec<[Pos2; 2]> {
+    fn get_lines(&self, state: &FieldState, primitive_pos: &GridPos) -> Vec<Vec<Pos2>> {
         match self {
             Self::Or(n_inputs) => Self::get_or_gate_lines_raw(state, *n_inputs, primitive_pos),
-            _ => vec![]
+            Self::Output => Self::get_output_lines_raw(state, primitive_pos),
+            _ => vec![],
+        }
+    }
+
+    fn is_inverted_connection(&self, connection_id: Id) -> bool {
+        match self {
+            Self::Not => connection_id == 1,
+            _ => false,
         }
     }
 }
 
-enum PolygonType {
-    Concave,
-    Convex,
+thread_local! {
+    static CACHE: LazyCell<RefCell<HashMap<(PrimitiveType, Rotation, LodLevel), Arc<Mesh>>>> =
+        LazyCell::new(|| RefCell::new(HashMap::new()));
+}
+
+fn apply_rotation_for_points(points: Vec<Pos2>, rotation: Rotation, dim: (i32, i32)) -> Vec<Pos2> {
+    let rot_ofs = match rotation {
+        Rotation::ROT0 => vec2(0.0, 0.0),
+        Rotation::ROT90 => vec2(dim.0 as f32, 0.0),
+        Rotation::ROT180 => vec2(dim.0 as f32, dim.1 as f32),
+        Rotation::ROT270 => vec2(0.0, dim.1 as f32),
+    };
+    points
+        .iter()
+        .map(|p| rotation.rotate_point(*p, pos2(0.0, 0.0)) + rot_ofs)
+        .collect()
+}
+
+fn get_cached_mesh(typ: PrimitiveType, rotation: Rotation, lod_level: LodLevel) -> Arc<Mesh> {
+    CACHE.with(|cell| {
+        let mut map = cell.borrow_mut();
+        if let Some(result) = map.get(&(typ, rotation, lod_level)) {
+            return result.clone();
+        }
+        let points = typ.get_polygon_points_raw(lod_level);
+        let rotated_points = apply_rotation_for_points(points, rotation, typ.get_dimension_raw());
+        let mesh = tesselate_polygon(
+            rotated_points,
+            Color32::GRAY,
+                lod_level == LodLevel::Max,
+            Color32::DARK_GRAY,
+            STROKE_SCALE,
+        );
+        let arc = Arc::new(mesh);
+        let arc_cloned = arc.clone();
+        map.insert((typ.clone(), rotation, lod_level), arc);
+        return arc_cloned;
+    })
 }

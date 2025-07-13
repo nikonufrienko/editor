@@ -5,7 +5,7 @@ use std::{
 
 use egui::{
     Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2,
-    epaint::{PathShape, PathStroke, TextShape, Vertex},
+    epaint::{PathShape, PathStroke, TextShape},
     vec2,
 };
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use serde_with::serde_as;
 
 use crate::{
     field::{Field, FieldState},
-    grid_db::{GridBD, GridBDConnectionPoint, GridRect, Id, grid_rect},
+    grid_db::{GridBD, GridBDConnectionPoint, GridRect, Id, grid_rect, mesh_line},
 };
 
 use super::PrimitiveComponent;
@@ -164,7 +164,7 @@ impl Unit {
         );
         painter.rect_filled(rect, 0.5 * state.scale, Color32::GRAY);
 
-        if state.scale > Field::LOD_LEVEL0_SCALE {
+        if state.scale > Field::LOD_LEVEL_MIN_SCALE {
             painter.rect_stroke(
                 rect,
                 0.5 * state.scale,
@@ -446,8 +446,8 @@ impl NetSegment {
 
     pub fn get_mesh(&self, bd: &GridBD, state: &FieldState) -> Mesh {
         let w = (state.grid_size * 0.1).max(1.0);
-        let half_w = w * 0.5;
         let ofs = Vec2::new(0.5 * state.grid_size, 0.5 * state.grid_size);
+        let color = Color32::DARK_GRAY;
 
         let p1 = state.grid_to_screen(&self.pos1) + ofs;
         let p2 = state.grid_to_screen(&self.pos2) + ofs;
@@ -473,61 +473,7 @@ impl NetSegment {
             }
         }
 
-        let color = Color32::DARK_GRAY;
-        let mut mesh = Mesh::default();
-
-        for i in 0..pts.len() - 1 {
-            let start = pts[i];
-            let end = pts[i + 1];
-
-            let delta = end - start;
-            let length = delta.length();
-            if length == 0.0 {
-                continue;
-            }
-            let dir = delta / length;
-            let perp = Vec2::new(-dir.y, dir.x);
-            let half = perp * half_w;
-
-            let p1 = start + half - dir * half_w;
-            let p2 = start - half - dir * half_w;
-            let p3 = end + half + dir * half_w;
-            let p4 = end - half + dir * half_w;
-
-            let idx_base = mesh.vertices.len() as u32;
-
-            mesh.vertices.push(Vertex {
-                pos: p1,
-                uv: Pos2::ZERO,
-                color,
-            });
-            mesh.vertices.push(Vertex {
-                pos: p2,
-                uv: Pos2::ZERO,
-                color,
-            });
-            mesh.vertices.push(Vertex {
-                pos: p3,
-                uv: Pos2::ZERO,
-                color,
-            });
-            mesh.vertices.push(Vertex {
-                pos: p4,
-                uv: Pos2::ZERO,
-                color,
-            });
-
-            mesh.indices.extend_from_slice(&[
-                idx_base,
-                idx_base + 1,
-                idx_base + 2,
-                idx_base + 2,
-                idx_base + 1,
-                idx_base + 3,
-            ]);
-        }
-
-        mesh
+        mesh_line(pts, w, color)
     }
 
     pub fn is_hovered(&self, state: &FieldState) -> bool {

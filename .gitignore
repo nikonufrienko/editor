@@ -2,3 +2,5 @@
 /dist
 *.AppImage
 Cargo.lock
+/AppImage
+*.json

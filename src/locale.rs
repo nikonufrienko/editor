@@ -21,6 +21,11 @@ pub struct Locale {
     pub file_wrong_format: &'static str,
     pub file_hovered_message: &'static str,
     pub common_components: &'static str,
+    pub filter: &'static str,
+    pub logic_gates: &'static str,
+    pub muxes: &'static str,
+    pub input_outputs: &'static str,
+    pub custom_units: &'static str,
 }
 
 pub const RU_LOCALE: Locale = Locale {
@@ -41,7 +46,12 @@ pub const RU_LOCALE: Locale = Locale {
     file_load_error: "Ошибка при открытии файла",
     file_wrong_format: "Неверный формат файла",
     file_hovered_message: "А ну давай это сюда",
+    filter: "Фильтр:",
     common_components: "Общие",
+    logic_gates: "Логические гейты",
+    muxes: "Мультиплексоры",
+    input_outputs: "Входы/выходы",
+    custom_units: "Кастомизируемые блоки",
 };
 
 pub const EN_LOCALE: Locale = Locale {
@@ -62,7 +72,12 @@ pub const EN_LOCALE: Locale = Locale {
     file_load_error: "File open error",
     file_wrong_format: "File wrong format",
     file_hovered_message: "Put it here",
+    filter: "filter:",
     common_components: "Common",
+    logic_gates: "Logic gates",
+    muxes: "Muxes",
+    input_outputs: "I/O",
+    custom_units: "Custom units",
 };
 
 pub fn get_system_default_locale() -> LocaleType {
