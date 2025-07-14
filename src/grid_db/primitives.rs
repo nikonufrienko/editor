@@ -1,14 +1,11 @@
 use std::{
     cell::{LazyCell, RefCell},
     f32::consts::PI,
-    sync::Arc,
+    sync::Arc, vec,
 };
 
 use egui::{
-    Color32, Mesh, Painter, Pos2, Shape, Stroke,
-    ahash::{HashMap, HashMapExt},
-    emath::TSTransform,
-    pos2, vec2,
+    ahash::{HashMap, HashMapExt}, emath::TSTransform, pos2, vec2, Color32, Mesh, Painter, Pos2, Shape, Stroke
 };
 use serde::{Deserialize, Serialize};
 
@@ -94,6 +91,15 @@ impl Rotation {
             center.y + dx * sin_a + dy * cos_a,
         )
     }
+
+    pub fn get_rotated_dim(&self, (w, h): (i32, i32)) -> (i32, i32) {
+        match self {
+            Rotation::ROT0 => (w, h),
+            Rotation::ROT90 => (h, w),
+            Rotation::ROT180 => (w, h),
+            Rotation::ROT270 => (h, w),
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -121,7 +127,7 @@ impl PrimitiveComponent {
         }
     }
 
-    fn apply_rotation(&self, points: Vec<Pos2>, state: &FieldState) -> Vec<Pos2> {
+    fn apply_rotation(&self, point: Pos2, state: &FieldState) -> Pos2 {
         let rot_center = state.grid_to_screen(&self.pos);
         let dim = self.get_dimension();
         let rot_ofs = match self.rotation {
@@ -130,13 +136,24 @@ impl PrimitiveComponent {
             Rotation::ROT180 => vec2(dim.0 as f32, dim.1 as f32) * state.grid_size,
             Rotation::ROT270 => vec2(0.0, dim.1 as f32) * state.grid_size,
         };
-        points
-            .iter()
-            .map(|p| self.rotation.rotate_point(*p, rot_center) + rot_ofs)
-            .collect()
+        self.rotation.rotate_point(point, rot_center) + rot_ofs
     }
 
-    fn apply_rotation_grid_pos(&self, points: Vec<GridPos>) -> Vec<GridPos> {
+    fn apply_rotation_for_points(&self, points: &mut Vec<Pos2>, state: &FieldState) {
+        let rot_center = state.grid_to_screen(&self.pos);
+        let dim = self.get_dimension();
+        let rot_ofs = match self.rotation {
+            Rotation::ROT0 => vec2(0.0, 0.0),
+            Rotation::ROT90 => vec2(dim.0 as f32, 0.0) * state.grid_size,
+            Rotation::ROT180 => vec2(dim.0 as f32, dim.1 as f32) * state.grid_size,
+            Rotation::ROT270 => vec2(0.0, dim.1 as f32) * state.grid_size,
+        };
+        for point in points {
+            *point = self.rotation.rotate_point(*point, rot_center) + rot_ofs;
+        }
+    }
+
+    fn apply_rotation_grid_pos(&self, point: GridPos) -> GridPos {
         let rot_center = self.pos;
         let dim = self.get_dimension();
         let rot_ofs = match self.rotation {
@@ -145,10 +162,7 @@ impl PrimitiveComponent {
             Rotation::ROT180 => grid_pos(dim.0 - 1, dim.1 - 1),
             Rotation::ROT270 => grid_pos(0, dim.1 - 1),
         };
-        points
-            .iter()
-            .map(|p| self.rotation.rotate_grid_pos(*p, rot_center) + rot_ofs)
-            .collect()
+        self.rotation.rotate_grid_pos(point, rot_center) + rot_ofs
     }
 
     pub fn is_connection_hovered(&self, connection_id: Id, state: &FieldState) -> bool {
@@ -179,9 +193,7 @@ impl PrimitiveComponent {
             return None;
         }
         Some(
-            self.apply_rotation_grid_pos(vec![
-                self.typ.get_dock_cell_raw(connection_id, &self.pos),
-            ])[0],
+            self.apply_rotation_grid_pos(self.typ.get_dock_cell_raw(connection_id, &self.pos)),
         )
     }
 
@@ -191,12 +203,9 @@ impl PrimitiveComponent {
         }
         Some(
             self.apply_rotation(
-                vec![
-                    self.typ
-                        .get_connection_position_raw(connection_id, state, &self.pos),
-                ],
+                self.typ.get_connection_position_raw(connection_id, state, &self.pos),
                 state,
-            )[0],
+            ),
         )
     }
 
@@ -208,24 +217,25 @@ impl PrimitiveComponent {
             color: stroke_color,
             width: stroke_w,
         };
-
         let lod_level = state.lod_level();
+
         // Draw lines:
         if state.scale > Field::LOD_LEVEL_MIN_SCALE {
-            self.typ
-                .get_lines(state, &self.pos)
-                .iter()
-                .for_each(|segment| {
-                    let rotated = self.apply_rotation(segment.to_vec(), state);
-                    painter.line(rotated, stroke);
-                });
+            for segment in self.typ
+                .get_lines(state, &self.pos) {
+                    let mut segment = segment;
+                    self.apply_rotation_for_points(&mut segment, state);
+                    painter.line(segment, stroke);
+            }
         }
+
         let mut shape = Shape::Mesh(get_cached_mesh(self.typ, self.rotation, lod_level));
         shape.transform(TSTransform {
             scaling: state.grid_size,
             translation: state.grid_to_screen(&self.pos).to_vec2(),
         });
         painter.add(shape);
+
 
         // Draw connections:
         if state.scale > Field::LOD_LEVEL_MIN_SCALE {
@@ -234,9 +244,9 @@ impl PrimitiveComponent {
                 if self.typ.is_inverted_connection(i) {
                     painter.circle(
                         self.apply_rotation(
-                            vec![self.typ.get_connection_position_raw(i, state, &self.pos)],
+                        self.typ.get_connection_position_raw(i, state, &self.pos),
                             state,
-                        )[0],
+                        ),
                         radius * 2.0,
                         fill_color,
                         stroke,
@@ -244,9 +254,9 @@ impl PrimitiveComponent {
                 } else {
                     painter.circle_filled(
                         self.apply_rotation(
-                            vec![self.typ.get_connection_position_raw(i, state, &self.pos)],
+                            self.typ.get_connection_position_raw(i, state, &self.pos),
                             state,
-                        )[0],
+                        ),
                         radius,
                         stroke_color,
                     );
@@ -656,17 +666,17 @@ thread_local! {
         LazyCell::new(|| RefCell::new(HashMap::new()));
 }
 
-fn apply_rotation_for_points(points: Vec<Pos2>, rotation: Rotation, dim: (i32, i32)) -> Vec<Pos2> {
+fn apply_rotation_for_raw_points(points: &mut Vec<Pos2>, rotation: Rotation, raw_dim: (i32, i32)) {
+    let dim = rotation.get_rotated_dim(raw_dim);
     let rot_ofs = match rotation {
         Rotation::ROT0 => vec2(0.0, 0.0),
         Rotation::ROT90 => vec2(dim.0 as f32, 0.0),
         Rotation::ROT180 => vec2(dim.0 as f32, dim.1 as f32),
         Rotation::ROT270 => vec2(0.0, dim.1 as f32),
     };
-    points
-        .iter()
-        .map(|p| rotation.rotate_point(*p, pos2(0.0, 0.0)) + rot_ofs)
-        .collect()
+    for point in points {
+        *point = rotation.rotate_point(*point, pos2(0.0, 0.0)) + rot_ofs;
+    }
 }
 
 fn get_cached_mesh(typ: PrimitiveType, rotation: Rotation, lod_level: LodLevel) -> Arc<Mesh> {
@@ -675,10 +685,10 @@ fn get_cached_mesh(typ: PrimitiveType, rotation: Rotation, lod_level: LodLevel) 
         if let Some(result) = map.get(&(typ, rotation, lod_level)) {
             return result.clone();
         }
-        let points = typ.get_polygon_points_raw(lod_level);
-        let rotated_points = apply_rotation_for_points(points, rotation, typ.get_dimension_raw());
+        let mut points = typ.get_polygon_points_raw(lod_level);
+        apply_rotation_for_raw_points(&mut points, rotation, typ.get_dimension_raw());
         let mesh = tesselate_polygon(
-            rotated_points,
+            points,
             Color32::GRAY,
                 lod_level == LodLevel::Max,
             Color32::DARK_GRAY,
