@@ -32,6 +32,35 @@ fn get_io() -> Vec<ComponentLibEntry> {
     ]
 }
 
+fn get_muxes() -> Vec<ComponentLibEntry> {
+    vec![
+        ComponentLibEntry {
+            name: "MUX2",
+            component: Component::Primitive(PrimitiveComponent {
+                typ: PrimitiveType::Mux(2),
+                pos: grid_pos(1, 1), // Default preview pos
+                rotation: crate::grid_db::Rotation::ROT0,
+            }),
+        },
+        ComponentLibEntry {
+            name: "MUX4",
+            component: Component::Primitive(PrimitiveComponent {
+                typ: PrimitiveType::Mux(4),
+                pos: grid_pos(1, 1), // Default preview pos
+                rotation: crate::grid_db::Rotation::ROT0,
+            }),
+        },
+        ComponentLibEntry {
+            name: "MUX8",
+            component: Component::Primitive(PrimitiveComponent {
+                typ: PrimitiveType::Mux(8),
+                pos: grid_pos(1, 1), // Default preview pos
+                rotation: crate::grid_db::Rotation::ROT0,
+            }),
+        },
+    ]
+}
+
 fn get_gates() -> Vec<ComponentLibEntry> {
     vec![
         ComponentLibEntry {
@@ -78,6 +107,14 @@ fn get_gates() -> Vec<ComponentLibEntry> {
             name: "NOT",
             component: Component::Primitive(PrimitiveComponent {
                 typ: PrimitiveType::Not,
+                pos: grid_pos(1, 1), // Default preview pos
+                rotation: crate::grid_db::Rotation::ROT0,
+            }),
+        },
+        ComponentLibEntry {
+            name: "XOR2",
+            component: Component::Primitive(PrimitiveComponent {
+                typ: PrimitiveType::Xor(2),
                 pos: grid_pos(1, 1), // Default preview pos
                 rotation: crate::grid_db::Rotation::ROT0,
             }),
@@ -135,7 +172,7 @@ fn get_units_examples() -> Vec<ComponentLibEntry> {
 }
 
 pub fn get_component_lib() -> Vec<Vec<ComponentLibEntry>> {
-    vec![get_gates(), get_io(), get_units_examples()]
+    vec![get_gates(), get_muxes(), get_io(), get_units_examples()]
 }
 
 pub fn get_component_lib_with_query(query: &String) -> Vec<Vec<ComponentLibEntry>> {
@@ -163,8 +200,9 @@ pub fn get_component_lib_with_query(query: &String) -> Vec<Vec<ComponentLibEntry
 pub fn get_group_name(group_id: usize, locale: &Locale) -> &'static str {
     match group_id {
         0 => locale.logic_gates,
-        1 => locale.input_outputs,
-        2 => locale.custom_units,
+        1 => locale.muxes,
+        2 => locale.input_outputs,
+        3 => locale.custom_units,
         _ => "",
     }
 }

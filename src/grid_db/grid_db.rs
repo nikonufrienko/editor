@@ -319,7 +319,7 @@ impl GridBD {
             [c_min_x, c_min_y] = c_bbox.lower();
             [c_max_x, c_max_y] = c_bbox.upper();
         } else {
-            [c_min_x, c_min_y, c_max_x, c_max_y] = [0,0,0,0];
+            [c_min_x, c_min_y, c_max_x, c_max_y] = [0, 0, 0, 0];
         }
 
         let [n_min_x, n_min_y, n_max_x, n_max_y];
@@ -328,7 +328,7 @@ impl GridBD {
             [n_min_x, n_min_y] = n_bbox.lower();
             [n_max_x, n_max_y] = n_bbox.upper();
         } else {
-            [n_min_x, n_min_y, n_max_x, n_max_y] = [0,0,0,0];
+            [n_min_x, n_min_y, n_max_x, n_max_y] = [0, 0, 0, 0];
         }
 
         let min_x = c_min_x.min(n_min_x);

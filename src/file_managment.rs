@@ -22,7 +22,7 @@ enum FileManagerState {
 pub struct FileManager {
     state: FileManagerState,
     done: Arc<AtomicBool>, // For async action status checking
-    loaded_data: Arc<Mutex<Result<GridBD, &'static str>>>,
+    loaded_data: Arc<Mutex<Result<(GridBD, String), &'static str>>>,
 }
 
 impl FileManager {
@@ -34,7 +34,7 @@ impl FileManager {
         }
     }
 
-    fn check_dropping_files(&mut self, ctx: &egui::Context, locale: &Locale, bd: &mut GridBD) {
+    fn check_dropping_files(&mut self, ctx: &egui::Context, locale: &'static Locale) {
         if ctx.input(|input_state| !input_state.raw.hovered_files.is_empty()) {
             egui::modal::Modal::new("FileManager".into())
                 .show(ctx, |ui| ui.label(locale.file_hovered_message));
@@ -43,34 +43,49 @@ impl FileManager {
         let file_read_err = ctx.input(|input_state| {
             if !input_state.raw.dropped_files.is_empty() {
                 if let Some(file) = input_state.raw.dropped_files.first() {
-                    // bd.name = file.name // TODO: use name of file in bd
+                    let resp = self.loaded_data.clone();
                     if let Some(bytes) = file.bytes.clone() {
-                        if let Ok(json) = String::from_utf8(bytes.to_vec()) {
-                            if let Ok(result) = GridBD::load_from_json(json) {
-                                *bd = result;
-                                return false;
-                            }
-                        }
+                        let file_name = file.name.clone();
+                        self.state = FileManagerState::OpenFile;
+                        let status = self.done.clone().clone();
+                        Self::execute(async move {
+                            let data = bytes.to_vec();
+                            let mut receiver = resp.lock();
+                            *receiver = Self::load_data(data, locale, file_name);
+                            status.store(true, std::sync::atomic::Ordering::Relaxed);
+                        });
+                        return false;
                     } else {
                         #[cfg(not(target_arch = "wasm32"))]
                         {
-                            println!("{:?}", file.path);
-                            if let Some(path) = &file.path {
-                                if let Ok(mut file) = File::open(path) {
-                                    let mut bytes = vec![];
-                                    if let Ok(_size) = file.read_to_end(&mut bytes) {
-                                        println!("2:{_size}");
-                                        if let Ok(json) = String::from_utf8(bytes.to_vec()) {
-                                            if let Ok(result) = GridBD::load_from_json(json) {
-                                                *bd = result;
-                                                return false;
-                                            }
+                            if let Some(path) = file.path.clone() {
+                                let file_name = file.name.clone();
+                                self.state = FileManagerState::OpenFile;
+                                let status = self.done.clone().clone();
+
+                                Self::execute(async move {
+                                    let mut receiver = resp.lock();
+                                    if let Ok(mut file) = File::open(path) {
+                                        let mut bytes = vec![];
+                                        if let Ok(_size) = file.read_to_end(&mut bytes) {
+                                            *receiver = Self::load_data(bytes, locale, file_name);
+                                            status.store(true, std::sync::atomic::Ordering::Relaxed);
+                                        } else {
+                                            *receiver = Err(locale.file_load_error);
+                                            status.store(true, std::sync::atomic::Ordering::Relaxed);
                                         }
+                                    } else {
+                                        *receiver = Err(locale.file_load_error);
+                                        status.store(true, std::sync::atomic::Ordering::Relaxed);
                                     }
-                                }
+
+                                });
+
+                                return true;
                             }
                         }
                     }
+
                 }
                 true
             } else {
@@ -82,7 +97,7 @@ impl FileManager {
         }
     }
 
-    pub fn update(&mut self, ctx: &egui::Context, locale: &Locale, bd: &mut GridBD) {
+    pub fn update(&mut self, ctx: &egui::Context, locale: &'static Locale, bd: &mut GridBD, file_name: &mut String) {
         if self.state != FileManagerState::None {
             // Display state modal
             egui::modal::Modal::new("FileManager".into()).show(ctx, |ui| match self.state {
@@ -109,8 +124,9 @@ impl FileManager {
                 FileManagerState::OpenFile => {
                     if self.done.load(std::sync::atomic::Ordering::Relaxed) {
                         match &mut *self.loaded_data.lock() {
-                            Ok(new_bd) => {
+                            Ok((new_bd, new_file_name)) => {
                                 *bd = std::mem::take(new_bd);
+                                *file_name = new_file_name.clone();
                                 self.state = FileManagerState::None;
                                 self.done.store(false, std::sync::atomic::Ordering::Relaxed);
                             }
@@ -129,14 +145,15 @@ impl FileManager {
                 }
             };
         } else {
-            self.check_dropping_files(ctx, locale, bd);
+            self.check_dropping_files(ctx, locale);
         }
     }
 
-    fn load_data(data: Vec<u8>, locale: &'static Locale) -> Result<GridBD, &'static str> {
+    fn load_data(data: Vec<u8>, locale: &'static Locale, file_name: String) -> Result<(GridBD, String) , &'static str> {
         if let Ok(json) = String::from_utf8(data) {
             if let Ok(new_bd) = GridBD::load_from_json(json) {
-                return Ok(new_bd);
+                let striped_name = file_name.strip_suffix(".json").unwrap_or(&file_name).to_string();
+                return Ok((new_bd, striped_name));
             } else {
                 Err(locale.file_wrong_format)
             }
@@ -165,7 +182,7 @@ impl FileManager {
                 if let Some(file) = rfd::AsyncFileDialog::new().pick_file().await {
                     let data = file.read().await;
                     let mut receiver = resp.lock();
-                    *receiver = Self::load_data(data, locale);
+                    *receiver = Self::load_data(data, locale, file.file_name());
                 } else {
                     let mut receiver = resp.lock();
                     *receiver = Err(locale.file_load_error);
@@ -175,15 +192,16 @@ impl FileManager {
         }
     }
 
-    pub fn save_file(&mut self, bd: &GridBD) {
+    pub fn save_file(&mut self, bd: &GridBD, file_name: &String) {
         if let Some(data) = bd.dump_to_json() {
             self.state = FileManagerState::SaveFile;
+            let default_file_name = format!("{file_name}.json");
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let arc = self.done.clone().clone();
                 Self::execute(async move {
                     if let Some(file) = rfd::AsyncFileDialog::new()
-                        .set_file_name("1.json")
+                        .set_file_name(default_file_name)
                         .save_file()
                         .await
                     {
@@ -212,7 +230,7 @@ impl FileManager {
                     .dyn_into::<web_sys::HtmlAnchorElement>()
                     .unwrap();
 
-                a.set_download("1.json");
+                a.set_download(&default_file_name);
                 a.set_href(&url);
                 //a.set_style("display", "none");
 
@@ -228,8 +246,9 @@ impl FileManager {
         }
     }
 
-    pub fn export_to_svg(&mut self, bd: &GridBD) {
+    pub fn export_to_svg(&mut self, bd: &GridBD, file_name: &String) {
         self.state = FileManagerState::ExportSVG;
+        let default_file_name = format!("{file_name}.svg");
         #[cfg(not(target_arch = "wasm32"))]
         {
             let bd_arc = Arc::new(bd);
@@ -237,7 +256,7 @@ impl FileManager {
             let arc = self.done.clone().clone();
             Self::execute(async move {
                 if let Some(file) = rfd::AsyncFileDialog::new()
-                    .set_file_name("1.svg")
+                    .set_file_name(default_file_name)
                     .save_file()
                     .await
                 {
@@ -253,7 +272,6 @@ impl FileManager {
             use eframe::wasm_bindgen::prelude::Closure;
             use web_sys::{Blob, BlobPropertyBag, Url};
 
-            // Создаем Blob с правильным MIME-типом
             let mut blob_properties = BlobPropertyBag::new();
             blob_properties.type_("image/svg+xml");
 
@@ -268,9 +286,7 @@ impl FileManager {
             let window = web_sys::window().unwrap();
             let opened = window.open_with_url_and_target(&url, "_blank").unwrap();
 
-            // Проверяем, что окно открылось (может быть заблокировано popup-блокером)
             if opened.is_some() {
-                // Освобождаем ресурсы с задержкой
                 let closure = Closure::once(move || {
                     Url::revoke_object_url(&url).unwrap();
                 });
@@ -284,7 +300,6 @@ impl FileManager {
 
                 closure.forget();
             } else {
-                // Fallback: если popup заблокирован, показываем alert с инструкцией
                 window
                     .alert_with_message(
                         "Popup blocked! Please allow popups for this site and try again.",

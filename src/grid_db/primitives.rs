@@ -1,10 +1,10 @@
+use std::f32::consts::TAU;
 use std::{
     cell::{LazyCell, RefCell},
     f32::consts::PI,
     sync::Arc,
     vec,
 };
-use std::f32::consts::TAU;
 
 use egui::{
     Color32, Mesh, Painter, Pos2, Shape, Stroke,
@@ -204,13 +204,11 @@ impl PrimitiveComponent {
         if connection_id >= self.typ.get_connections_number() {
             return None;
         }
-        Some(
-            self.apply_rotation(
-                self.typ
-                    .get_connection_position_raw(connection_id) * state.grid_size + state.grid_to_screen(&self.pos).to_vec2(),
-                state,
-            ),
-        )
+        Some(self.apply_rotation(
+            self.typ.get_connection_position_raw(connection_id) * state.grid_size
+                + state.grid_to_screen(&self.pos).to_vec2(),
+            state,
+        ))
     }
 
     pub fn display(&self, state: &FieldState, painter: &Painter) {
@@ -225,7 +223,7 @@ impl PrimitiveComponent {
         let screen_pos = state.grid_to_screen(&self.pos).to_vec2();
         // Draw lines:
         if state.scale > Field::LOD_LEVEL_MIN_SCALE {
-            for line in self.typ.get_lines() {
+            for line in self.typ.get_lines(lod_level) {
                 let mut line = line;
                 for p in &mut line {
                     *p = *p * state.grid_size + screen_pos;
@@ -249,9 +247,8 @@ impl PrimitiveComponent {
             (0..self.typ.get_connections_number()).for_each(|i| {
                 painter.circle_filled(
                     self.apply_rotation(
-                        self.typ
-                        .get_connection_position_raw(i) * state.grid_size + screen_pos,
-                            state,
+                        self.typ.get_connection_position_raw(i) * state.grid_size + screen_pos,
+                        state,
                     ),
                     radius,
                     stroke_color,
@@ -271,7 +268,7 @@ impl PrimitiveComponent {
 
         // Lines
         let mut result = String::new();
-        let raw_lines = self.typ.get_lines();
+        let raw_lines = self.typ.get_lines(LodLevel::Max);
         for raw_line in raw_lines {
             let mut raw_line = raw_line;
             self.apply_rotation_for_points(&mut raw_line, &SVG_DUMMY_STATE);
@@ -284,15 +281,16 @@ impl PrimitiveComponent {
         // Ports:
         let radius = Self::CONNECTION_SCALE;
         (0..self.typ.get_connections_number()).for_each(|i| {
-            result.push_str(&(svg_circle_filled(
-                self.apply_rotation(
-                    self.typ
-                    .get_connection_position_raw(i) + pos_vec2,
-                    &SVG_DUMMY_STATE,
-                ) + offset_vec2,
-                radius,
-                stroke_color,
-            ) + &"\n"));
+            result.push_str(
+                &(svg_circle_filled(
+                    self.apply_rotation(
+                        self.typ.get_connection_position_raw(i) + pos_vec2,
+                        &SVG_DUMMY_STATE,
+                    ) + offset_vec2,
+                    radius,
+                    stroke_color,
+                ) + &"\n"),
+            );
         });
 
         // Polygons:
@@ -302,7 +300,8 @@ impl PrimitiveComponent {
             for p in &mut *points {
                 *p = *p + raw_offset;
             }
-            result.push_str(&(svg_polygon(&points, fill_color, stroke_color, STROKE_SCALE) + &"\n"));
+            result
+                .push_str(&(svg_polygon(&points, fill_color, stroke_color, STROKE_SCALE) + &"\n"));
         }
 
         result
@@ -311,9 +310,16 @@ impl PrimitiveComponent {
 
 #[derive(Deserialize, Serialize, Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub enum PrimitiveType {
+    // Logic gates:
     And(usize),
     Or(usize),
+    Xor(usize),
     Not,
+
+    // Muxes:
+    Mux(usize),
+
+    // Logic gates:
     Input,
     Output,
 }
@@ -347,10 +353,7 @@ impl PrimitiveType {
         }
     }
 
-    fn get_and_gate_connection_position_raw(
-        connection_id: Id,
-        n_inputs: usize
-    ) -> Pos2 {
+    fn get_and_gate_connection_position_raw(connection_id: Id, n_inputs: usize) -> Pos2 {
         let (w, h) = Self::get_and_gate_dimension_raw(n_inputs);
         if connection_id < n_inputs {
             if n_inputs % 2 == 0 {
@@ -395,6 +398,7 @@ impl PrimitiveType {
     //
     // *** Or gate ***
     //
+
     fn get_or_gate_dimension_raw(n_inputs: usize) -> (i32, i32) {
         return Self::get_and_gate_dimension_raw(n_inputs);
     }
@@ -407,46 +411,17 @@ impl PrimitiveType {
         Self::get_and_gate_dock_cell_raw(connection_id, n_inputs, primitive_pos)
     }
 
-    fn get_or_gate_connection_position_raw(
-        connection_id: Id,
-        n_inputs: usize,
-    ) -> Pos2 {
+    fn get_or_gate_connection_position_raw(connection_id: Id, n_inputs: usize) -> Pos2 {
         Self::get_and_gate_connection_position_raw(connection_id, n_inputs)
     }
 
-    fn get_or_gate_polygon_points_raw(n_inputs: usize, lod_level: LodLevel) -> Vec<Pos2> {
-        let grid_size = 1.0;
-        let pos = pos2(0.0, 0.0);
-        let stroke_w = STROKE_SCALE;
-        let grid_size = grid_size;
-        let height_factor = if n_inputs % 2 == 0 {
-            (2 * n_inputs - 1) as f32
-        } else {
-            n_inputs as f32
-        };
-        let height = height_factor * grid_size;
-
-        let center_y = pos.y + height / 2.0;
-
-        // Configurable parameters
-        let tip_x_factor = 3.0; // Tip position multiplier
-        let curve_strength = 0.0; // Right curve bend strength (0.0-1.0)
-        let n_curve_points = match lod_level {
-            LodLevel::Max => 30,
-            LodLevel::Mid => 5,
-            LodLevel::Min => 2,
-        }; // Number of points per curve segment
-        let left_curve_strength = 1.0; // Left curve concavity strength
-
-        // Key points
-        let top_point = pos2(pos.x + stroke_w * 0.5, pos.y + stroke_w * 0.5);
-        let bottom_point = pos2(pos.x + stroke_w * 0.5, pos.y + height - stroke_w * 0.5);
-        let left_control = pos2(pos.x + grid_size * left_curve_strength, center_y);
-        let tip_point = pos2(pos.x + tip_x_factor * grid_size, center_y);
-        let middle_x = pos.x + 2.2 * grid_size;
-
-        let mut points = Vec::new();
-
+    fn get_or_left_curve(
+        top_point: Pos2,
+        bottom_point: Pos2,
+        left_control: Pos2,
+        n_curve_points: usize,
+    ) -> Vec<Pos2> {
+        let mut points = Vec::with_capacity(n_curve_points);
         // Left concave curve (single quadratic Bezier from top to bottom)
         for i in 0..=n_curve_points {
             let t = i as f32 / n_curve_points as f32;
@@ -459,6 +434,27 @@ impl PrimitiveType {
                 + t.powi(2) * bottom_point.y;
             points.push(pos2(x, y));
         }
+        points
+    }
+
+    fn get_or_gate_shape_points(
+        top_point: Pos2,
+        bottom_point: Pos2,
+        left_control: Pos2,
+        tip_point: Pos2,
+        middle_x: f32,
+        n_curve_points: usize,
+    ) -> Vec<Pos2> {
+        let mut points = Vec::new();
+        // Configurable parameters
+        let curve_strength = 0.0; // Right curve bend strength (0.0-1.0)
+
+        points.extend(Self::get_or_left_curve(
+            top_point,
+            bottom_point,
+            left_control,
+            n_curve_points,
+        ));
 
         // Calculate control points for right curves
         let bottom_control = pos2(
@@ -498,17 +494,260 @@ impl PrimitiveType {
         points
     }
 
-    fn get_or_gate_lines_raw(
-        n_inputs: usize
-    ) -> Vec<Vec<Pos2>> {
+    fn get_or_gate_polygon_points_raw(n_inputs: usize, lod_level: LodLevel) -> Vec<Pos2> {
+        let grid_size = 1.0;
+        let pos = pos2(0.0, 0.0);
+        let stroke_w = STROKE_SCALE;
+        let height_factor = if n_inputs % 2 == 0 {
+            (2 * n_inputs - 1) as f32
+        } else {
+            n_inputs as f32
+        };
+        let height = height_factor * grid_size;
+
+        // Configurable parameters
+        let center_y = pos.y + height / 2.0;
+        let tip_x_factor = 3.0; // Tip position multiplier
+        let left_curve_strength = 1.0; // Left curve concavity strength
+        let n_curve_points = match lod_level {
+            LodLevel::Max => 30,
+            LodLevel::Mid => 5,
+            LodLevel::Min => 2,
+        }; // Number of points per curve segment
+
+        // Key points
+        let top_point = pos2(pos.x + stroke_w * 0.5, pos.y + stroke_w * 0.5);
+        let bottom_point = pos2(pos.x + stroke_w * 0.5, pos.y + height - stroke_w * 0.5);
+        let left_control = pos2(pos.x + grid_size * left_curve_strength, center_y);
+        let tip_point = pos2(pos.x + tip_x_factor * grid_size, center_y);
+        let middle_x = pos.x + 2.2 * grid_size;
+
+        Self::get_or_gate_shape_points(
+            top_point,
+            bottom_point,
+            left_control,
+            tip_point,
+            middle_x,
+            n_curve_points,
+        )
+    }
+
+    fn get_or_gate_lines_raw(n_inputs: usize) -> Vec<Vec<Pos2>> {
         let mut result = Vec::with_capacity(n_inputs);
+
+        let grid_size = 1.0;
+        let pos = pos2(0.0, 0.0);
+        let stroke_w = STROKE_SCALE;
+        let height_factor = if n_inputs % 2 == 0 {
+            (2 * n_inputs - 1) as f32
+        } else {
+            n_inputs as f32
+        };
+        let height = height_factor * grid_size;
+
+        let top_point = pos2(pos.x + stroke_w * 0.5, pos.y + stroke_w * 0.5);
+        let bottom_point = pos2(pos.x + stroke_w * 0.5, pos.y + height - stroke_w * 0.5);
+        let left_curve_strength = 1.0;
+        let left_control = pos2(
+            pos.x + grid_size * left_curve_strength,
+            pos.y + height / 2.0,
+        );
+
+        let min_y = top_point.y;
+        let max_y = bottom_point.y;
+        let y_range = max_y - min_y;
+
         for i in 0..n_inputs {
-            let p0: Pos2 =
-                Self::get_or_gate_connection_position_raw(i, n_inputs);
-            let p1: Pos2 = p0 + vec2(1.0, 0.0);
-            result.push(vec![p0, p1]);
+            let p0 = Self::get_or_gate_connection_position_raw(i, n_inputs);
+            let y = p0.y;
+
+            let t = if y_range.abs() < f32::EPSILON {
+                0.5
+            } else {
+                ((y - min_y) / y_range).clamp(0.0, 1.0)
+            };
+
+            let x = (1.0 - t).powi(2) * top_point.x
+                + 2.0 * (1.0 - t) * t * left_control.x
+                + t.powi(2) * bottom_point.x;
+
+            result.push(vec![p0, pos2(x, y)]);
         }
+
         result
+    }
+
+    //
+    // *** Xor gate ***
+    //
+    fn get_xor_gate_dimension_raw(n_inputs: usize) -> (i32, i32) {
+        return Self::get_and_gate_dimension_raw(n_inputs);
+    }
+
+    fn get_xor_gate_dock_cell_raw(
+        connection_id: Id,
+        n_inputs: usize,
+        primitive_pos: &GridPos,
+    ) -> GridPos {
+        Self::get_and_gate_dock_cell_raw(connection_id, n_inputs, primitive_pos)
+    }
+
+    fn get_xor_gate_connection_position_raw(connection_id: Id, n_inputs: usize) -> Pos2 {
+        Self::get_and_gate_connection_position_raw(connection_id, n_inputs)
+    }
+
+    fn get_xor_gate_polygon_points_raw(n_inputs: usize, lod_level: LodLevel) -> Vec<Pos2> {
+        let grid_size = 1.0;
+        let pos = pos2(0.0, 0.0);
+        let stroke_w = STROKE_SCALE;
+        let height_factor = if n_inputs % 2 == 0 {
+            (2 * n_inputs - 1) as f32
+        } else {
+            n_inputs as f32
+        };
+        let height = height_factor * grid_size;
+
+        let center_y = pos.y + height / 2.0;
+
+        // Configurable parameters
+        let tip_x_factor = 3.0; // Tip position multiplier
+        let n_curve_points = match lod_level {
+            LodLevel::Max => 30,
+            LodLevel::Mid => 5,
+            LodLevel::Min => 2,
+        }; // Number of points per curve segment
+        let left_curve_strength = 1.0; // Left curve concavity strength
+
+        // Key points
+        let top_point = pos2(
+            pos.x + 0.25 * grid_size + stroke_w * 0.5,
+            pos.y + stroke_w * 0.5,
+        );
+        let bottom_point = pos2(
+            pos.x + 0.25 * grid_size + stroke_w * 0.5,
+            pos.y + height - stroke_w * 0.5,
+        );
+        let left_control = pos2(
+            pos.x + 0.25 * grid_size + grid_size * left_curve_strength,
+            center_y,
+        );
+        let tip_point = pos2(pos.x + tip_x_factor * grid_size, center_y);
+        let middle_x = pos.x + 2.2 * grid_size;
+
+        Self::get_or_gate_shape_points(
+            top_point,
+            bottom_point,
+            left_control,
+            tip_point,
+            middle_x,
+            n_curve_points,
+        )
+    }
+
+    fn get_xor_gate_lines_raw(n_inputs: usize, lod_level: LodLevel) -> Vec<Vec<Pos2>> {
+        let mut result = Vec::with_capacity(n_inputs + 1);
+        result.extend(Self::get_or_gate_lines_raw(n_inputs));
+        let grid_size = 1.0;
+        let pos = pos2(0.0, 0.0);
+        let stroke_w = STROKE_SCALE;
+        let height_factor = if n_inputs % 2 == 0 {
+            (2 * n_inputs - 1) as f32
+        } else {
+            n_inputs as f32
+        };
+        let height = height_factor * grid_size;
+
+        let top_point = pos2(pos.x + stroke_w * 0.5, pos.y + stroke_w * 0.5);
+        let bottom_point = pos2(pos.x + stroke_w * 0.5, pos.y + height - stroke_w * 0.5);
+        let left_curve_strength = 1.0;
+        let left_control = pos2(
+            pos.x + grid_size * left_curve_strength,
+            pos.y + height / 2.0,
+        );
+
+        let n_curve_points = match lod_level {
+            LodLevel::Max => 30,
+            LodLevel::Mid => 5,
+            LodLevel::Min => 2,
+        }; // Number of points per curve segment
+        result.push(Self::get_or_left_curve(
+            top_point,
+            bottom_point,
+            left_control,
+            n_curve_points,
+        ));
+
+        result
+    }
+
+    //
+    // *** Mux ***
+    //
+    fn get_mux_dimension_raw(n_inputs: usize) -> (i32, i32) {
+        let w = if n_inputs > 2 { 2 } else { 1 };
+        let h = if n_inputs % 2 == 0 {
+            (2 * n_inputs - 1) as i32
+        } else {
+            n_inputs as i32
+        };
+        return (w, h);
+    }
+
+    fn get_mux_dock_cell_raw(
+        connection_id: Id,
+        n_inputs: usize,
+        primitive_pos: &GridPos,
+    ) -> GridPos {
+        if connection_id < n_inputs as Id {
+            if n_inputs % 2 == 0 {
+                *primitive_pos + grid_pos(-1, 2 * connection_id as i32)
+            } else {
+                *primitive_pos + grid_pos(-1, connection_id as i32)
+            }
+        } else if connection_id == n_inputs {
+            let (w, h) = Self::get_mux_dimension_raw(n_inputs);
+            *primitive_pos + grid_pos(w, h / 2)
+        } else {
+            let (w, h) = Self::get_mux_dimension_raw(n_inputs);
+            if w == 1 {
+                *primitive_pos + grid_pos(0, h)
+            } else {
+                *primitive_pos + grid_pos(1, h)
+            }
+        }
+    }
+
+    fn get_mux_connection_position_raw(connection_id: Id, n_inputs: usize) -> Pos2 {
+        let (w, h) = Self::get_mux_dimension_raw(n_inputs);
+        if connection_id < n_inputs {
+            if n_inputs % 2 == 0 {
+                pos2(0.0, (2 * connection_id) as f32 + 0.5)
+            } else {
+                pos2(0.0, connection_id as f32 + 0.5)
+            }
+        } else if connection_id == n_inputs {
+            pos2(w as f32, h as f32 / 2.0)
+        } else {
+            if w == 1 {
+                pos2(0.5, h as f32 - 0.25)
+            } else {
+                pos2(1.5, h as f32 - 0.75)
+            }
+        }
+    }
+
+    fn get_mux_polygon_points_raw(n_inputs: usize) -> Vec<Pos2> {
+        let (w, h) = Self::get_mux_dimension_raw(n_inputs);
+        let stroke_ofs = STROKE_SCALE * 0.5;
+        return vec![
+            pos2(stroke_ofs, stroke_ofs),
+            pos2(w as f32 - stroke_ofs, stroke_ofs + 0.5 * w as f32),
+            pos2(
+                w as f32 - stroke_ofs,
+                h as f32 - 0.5 * w as f32 - stroke_ofs,
+            ),
+            pos2(stroke_ofs, h as f32 - stroke_ofs),
+        ];
     }
 
     //
@@ -533,9 +772,7 @@ impl PrimitiveType {
         return vec![p0, p1, p2, p3, p4, p5];
     }
 
-    fn get_input_connection_position_raw(
-        _connection_id: Id
-    ) -> Pos2 {
+    fn get_input_connection_position_raw(_connection_id: Id) -> Pos2 {
         pos2(2.0, 0.5)
     }
 
@@ -550,17 +787,12 @@ impl PrimitiveType {
         Self::get_input_polygon_points_raw()
     }
 
-    fn get_output_connection_position_raw(
-        _connection_id: Id
-    ) -> Pos2 {
+    fn get_output_connection_position_raw(_connection_id: Id) -> Pos2 {
         pos2(0.0, 0.5)
     }
 
     fn get_output_lines_raw() -> Vec<Vec<Pos2>> {
-        vec![vec![
-            pos2(0.0, 0.5),
-            pos2(0.5, 0.5),
-        ]]
+        vec![vec![pos2(0.0, 0.5), pos2(0.5, 0.5)]]
     }
 
     //
@@ -577,9 +809,15 @@ impl PrimitiveType {
     fn get_not_polygons_points_raw(lod_level: LodLevel) -> Vec<Vec<Pos2>> {
         let stroke_w = STROKE_SCALE;
         let grid_size = 1.0;
-        let p0 = pos2(grid_size * 0.5 + stroke_w * 0.5, grid_size * 0.5 + stroke_w * 0.5);
+        let p0 = pos2(
+            grid_size * 0.5 + stroke_w * 0.5,
+            grid_size * 0.5 + stroke_w * 0.5,
+        );
         let p1 = pos2(2.5 * grid_size - stroke_w * 0.5, grid_size * 1.5);
-        let p2 = pos2(grid_size * 0.5 + stroke_w * 0.5, 2.5 * grid_size  - stroke_w * 0.5);
+        let p2 = pos2(
+            grid_size * 0.5 + stroke_w * 0.5,
+            2.5 * grid_size - stroke_w * 0.5,
+        );
 
         // Circle polygon:
         let center = p1;
@@ -601,22 +839,22 @@ impl PrimitiveType {
         return vec![vec![p0, p1, p2], circle_points];
     }
 
-    fn get_not_connection_position_raw(
-        connection_id: Id
-    ) -> Pos2 {
+    fn get_not_connection_position_raw(connection_id: Id) -> Pos2 {
         pos2(if connection_id == 0 { 0.0 } else { 3.0 }, 1.5)
     }
 
     fn get_not_lines_raw() -> Vec<Vec<Pos2>> {
         let grid_size = 1.0;
-        vec![vec![
-            pos2(0.0, grid_size * 1.5),
-            pos2(0.5 * grid_size, grid_size * 1.5),
-        ],
+        vec![
             vec![
-            pos2(2.5 * grid_size, grid_size * 1.5),
-            pos2(3.0 * grid_size, grid_size * 1.5),
-        ]]
+                pos2(0.0, grid_size * 1.5),
+                pos2(0.5 * grid_size, grid_size * 1.5),
+            ],
+            vec![
+                pos2(2.5 * grid_size, grid_size * 1.5),
+                pos2(3.0 * grid_size, grid_size * 1.5),
+            ],
+        ]
     }
 
     //
@@ -626,6 +864,8 @@ impl PrimitiveType {
         match self {
             Self::And(n_inputs) => *n_inputs + 1,
             Self::Or(n_inputs) => *n_inputs + 1,
+            Self::Xor(n_inputs) => *n_inputs + 1,
+            Self::Mux(n_inputs) => *n_inputs + 2,
             Self::Not => 2,
             Self::Input => 1,
             Self::Output => 1,
@@ -636,9 +876,11 @@ impl PrimitiveType {
         match self {
             Self::And(n_inputs) => Self::get_and_gate_dimension_raw(*n_inputs),
             Self::Or(n_inputs) => Self::get_or_gate_dimension_raw(*n_inputs),
+            Self::Xor(n_inputs) => Self::get_xor_gate_dimension_raw(*n_inputs),
             Self::Not => (3, 3),
             Self::Input => (2, 1),
             Self::Output => (2, 1),
+            Self::Mux(n_inputs) => Self::get_mux_dimension_raw(*n_inputs),
         }
     }
 
@@ -650,48 +892,56 @@ impl PrimitiveType {
             Self::Or(n_inputs) => {
                 Self::get_or_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
             }
+            Self::Xor(n_inputs) => {
+                Self::get_xor_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
+            }
+            Self::Mux(n_inputs) => {
+                Self::get_mux_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
+            }
             Self::Not => Self::get_not_dock_cell_raw(connection_id, primitive_pos),
             Self::Input => Self::get_input_dock_cell_raw(primitive_pos),
             Self::Output => Self::get_output_dock_cell_raw(primitive_pos),
         }
     }
 
-    fn get_connection_position_raw(
-        &self,
-        connection_id: Id
-    ) -> Pos2 {
+    fn get_connection_position_raw(&self, connection_id: Id) -> Pos2 {
         match self {
-            Self::And(n_inputs) => Self::get_and_gate_connection_position_raw(
-                connection_id,
-                *n_inputs,
-            ),
-            Self::Or(n_inputs) => Self::get_or_gate_connection_position_raw(
-                connection_id,
-                *n_inputs,
-            ),
+            Self::And(n_inputs) => {
+                Self::get_and_gate_connection_position_raw(connection_id, *n_inputs)
+            }
+            Self::Or(n_inputs) => {
+                Self::get_or_gate_connection_position_raw(connection_id, *n_inputs)
+            }
+            Self::Xor(n_inputs) => {
+                Self::get_xor_gate_connection_position_raw(connection_id, *n_inputs)
+            }
             Self::Not => Self::get_not_connection_position_raw(connection_id),
-            Self::Input => {
-                Self::get_input_connection_position_raw(connection_id)
-            }
-            Self::Output => {
-                Self::get_output_connection_position_raw(connection_id)
-            }
+            Self::Mux(n_inputs) => Self::get_mux_connection_position_raw(connection_id, *n_inputs),
+            Self::Input => Self::get_input_connection_position_raw(connection_id),
+            Self::Output => Self::get_output_connection_position_raw(connection_id),
         }
     }
 
     fn get_polygons_points_raw(&self, lod_level: LodLevel) -> Vec<Vec<Pos2>> {
         match self {
-            Self::And(n_inputs) =>  vec![Self::get_and_gate_polygon_points_raw(*n_inputs, lod_level)],
-            Self::Or(n_inputs) =>   vec![Self::get_or_gate_polygon_points_raw(*n_inputs, lod_level)],
-            Self::Input =>                  vec![Self::get_input_polygon_points_raw()],
-            Self::Output =>                 vec![Self::get_output_polygon_points_raw()],
-            Self::Not =>                    Self::get_not_polygons_points_raw(lod_level),
+            Self::And(n_inputs) => {
+                vec![Self::get_and_gate_polygon_points_raw(*n_inputs, lod_level)]
+            }
+            Self::Or(n_inputs) => vec![Self::get_or_gate_polygon_points_raw(*n_inputs, lod_level)],
+            Self::Xor(n_inputs) => {
+                vec![Self::get_xor_gate_polygon_points_raw(*n_inputs, lod_level)]
+            }
+            Self::Mux(n_inputs) => vec![Self::get_mux_polygon_points_raw(*n_inputs)],
+            Self::Input => vec![Self::get_input_polygon_points_raw()],
+            Self::Output => vec![Self::get_output_polygon_points_raw()],
+            Self::Not => Self::get_not_polygons_points_raw(lod_level),
         }
     }
 
-    fn get_lines(&self) -> Vec<Vec<Pos2>> {
+    fn get_lines(&self, lod_level: LodLevel) -> Vec<Vec<Pos2>> {
         match self {
             Self::Or(n_inputs) => Self::get_or_gate_lines_raw(*n_inputs),
+            Self::Xor(n_inputs) => Self::get_xor_gate_lines_raw(*n_inputs, lod_level),
             Self::Output => Self::get_output_lines_raw(),
             Self::Not => Self::get_not_lines_raw(),
             _ => vec![],
@@ -717,7 +967,11 @@ fn apply_rotation_for_raw_points(points: &mut Vec<Pos2>, rotation: Rotation, raw
     }
 }
 
-fn get_cached_meshes(typ: PrimitiveType, rotation: Rotation, lod_level: LodLevel) -> Vec<Arc<Mesh>> {
+fn get_cached_meshes(
+    typ: PrimitiveType,
+    rotation: Rotation,
+    lod_level: LodLevel,
+) -> Vec<Arc<Mesh>> {
     CACHE.with(|cell| {
         let mut map = cell.borrow_mut();
         if let Some(result) = map.get(&(typ, rotation, lod_level)) {

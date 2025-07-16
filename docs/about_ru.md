@@ -18,11 +18,13 @@
     - [x] AND
     - [x] OR
     - [x] NOT
-    - [ ] XOR
+    - [x] XOR
     - [ ] NAND
     - [ ] NOR
-    - [ ] MUX
-    - [ ] MUX
+    - [x] MUX
+    - [ ] POINT
+    - [ ] DFF_S_RST_N (D-type flip-flop with synchronous reset_n)
+    - [ ] DFF_A_RST_N (D-type flip-flop with asynchronous reset_n)
 * [ ] Добавить настройку параметризации компонентов.
 * Добавить экспорт в SVG:
     - [x] Для соединений (Net).

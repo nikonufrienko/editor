@@ -1,18 +1,22 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use eframe::egui;
-use egui::{CursorIcon, Id, LayerId, Rect, Sense, Stroke, vec2};
+use egui::{CursorIcon, Id, KeyboardShortcut, LayerId, Modifiers, Rect, Sense, Stroke, vec2};
 
 use crate::{
-    field::{Field, GridType}, file_managment::FileManager, helpers::{Helpers}, locale::{get_system_default_locale, SUPPORTED_LOCALES}, preview::PreviewPanel
+    field::{Field, GridType},
+    file_managment::FileManager,
+    helpers::Helpers,
+    locale::{SUPPORTED_LOCALES, get_system_default_locale},
+    preview::PreviewPanel,
 };
 
 mod component_lib;
 mod field;
 mod file_managment;
 mod grid_db;
+mod helpers;
 mod locale;
 mod preview;
-mod helpers;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
@@ -84,6 +88,7 @@ struct EditorApp {
     locale: locale::LocaleType,
     file_manager: FileManager,
     helpers: Helpers,
+    file_name: String,
 }
 
 impl EditorApp {
@@ -93,8 +98,24 @@ impl EditorApp {
             preview_window: PreviewPanel::new(),
             locale: get_system_default_locale(),
             file_manager: FileManager::new(),
-            helpers: Helpers::new()
+            helpers: Helpers::new(),
+            file_name: String::new(),
         }
+    }
+}
+
+const DUMMY_NAME: &'static str = "Untitled";
+impl EditorApp {
+    fn save(&mut self) {
+        let dummy = &DUMMY_NAME.into();
+        self.file_manager.save_file(
+            &self.field.grid_db,
+            if self.file_name.is_empty() {
+                dummy
+            } else {
+                &self.file_name
+            },
+        );
     }
 }
 
@@ -103,7 +124,7 @@ impl eframe::App for EditorApp {
         let locale: &'static locale::Locale = self.locale.locale();
         let foreground: LayerId = LayerId::new(egui::Order::Foreground, Id::new("foreground"));
         self.file_manager
-            .update(ctx, locale, &mut self.field.grid_db);
+            .update(ctx, locale, &mut self.field.grid_db, &mut self.file_name);
         ctx.tessellation_options_mut(|options| options.feathering = false);
         egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -114,11 +135,19 @@ impl eframe::App for EditorApp {
                             ui.close();
                         }
                         if ui.button(locale.save).clicked() {
-                            self.file_manager.save_file(&self.field.grid_db);
+                            self.save();
                             ui.close();
                         }
                         if ui.button(locale.export_to_svg).clicked() {
-                            self.file_manager.export_to_svg(&self.field.grid_db);
+                            let dummy = &DUMMY_NAME.into();
+                            self.file_manager.export_to_svg(
+                                &self.field.grid_db,
+                                if self.file_name.is_empty() {
+                                    dummy
+                                } else {
+                                    &self.file_name
+                                },
+                            );
                             ui.close();
                         }
                     });
@@ -148,6 +177,20 @@ impl eframe::App for EditorApp {
                             ui.close();
                         }
                     });
+                    if ui.available_width() >= ui.available_height() * 2.5 + 40.0 {
+                        ui.add_space(10.0);
+                        ui.add(egui::Label::new(locale.project_name).selectable(false));
+                        let w = ui.available_width();
+                        let h = ui.available_height();
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.file_name)
+                                .hint_text(DUMMY_NAME)
+                                .background_color(ui.visuals().faint_bg_color)
+                                .desired_width(w - 10.0 - 2.0 * h)
+                                .horizontal_align(egui::Align::Center),
+                        );
+                    }
+
                     panel_left_switch(ui, &mut self.preview_window.is_expanded);
                 });
             });
@@ -163,6 +206,13 @@ impl eframe::App for EditorApp {
             self.field.show(ui);
         });
         self.helpers.show(ctx, self.locale);
+
+        // Check Ctrl+S:
+        if ctx.input_mut(|state| {
+            state.consume_shortcut(&KeyboardShortcut::new(Modifiers::CTRL, egui::Key::S))
+        }) {
+            self.save();
+        }
     }
 }
 

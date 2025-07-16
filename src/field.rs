@@ -26,7 +26,7 @@ pub struct FieldState {
     pub rect: Rect,
     pub label_font: FontId,
     pub label_visible: bool,
-    pub cursor_pos: Option<Pos2>
+    pub cursor_pos: Option<Pos2>,
 }
 
 // Dummy state parameters used to generate SVG

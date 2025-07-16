@@ -30,6 +30,7 @@ pub struct Locale {
     pub ongoing_export_to_svg: &'static str,
     pub help: &'static str,
     pub about: &'static str,
+    pub project_name: &'static str,
 }
 
 pub const RU_LOCALE: Locale = Locale {
@@ -59,7 +60,8 @@ pub const RU_LOCALE: Locale = Locale {
     export_to_svg: "Экспорт в SVG",
     ongoing_export_to_svg: "Идет экспорт в SVG...",
     help: "Помощь",
-    about: "О программе"
+    about: "О программе",
+    project_name: "Имя проекта:",
 };
 
 pub const EN_LOCALE: Locale = Locale {
@@ -89,7 +91,8 @@ pub const EN_LOCALE: Locale = Locale {
     export_to_svg: "Export to SVG",
     ongoing_export_to_svg: "Exporting to svg...",
     help: "Help",
-    about: "About"
+    about: "About",
+    project_name: "Project name:",
 };
 
 pub fn get_system_default_locale() -> LocaleType {
