@@ -26,6 +26,10 @@ pub struct Locale {
     pub muxes: &'static str,
     pub input_outputs: &'static str,
     pub custom_units: &'static str,
+    pub export_to_svg: &'static str,
+    pub ongoing_export_to_svg: &'static str,
+    pub help: &'static str,
+    pub about: &'static str,
 }
 
 pub const RU_LOCALE: Locale = Locale {
@@ -52,6 +56,10 @@ pub const RU_LOCALE: Locale = Locale {
     muxes: "Мультиплексоры",
     input_outputs: "Входы/выходы",
     custom_units: "Кастомизируемые блоки",
+    export_to_svg: "Экспорт в SVG",
+    ongoing_export_to_svg: "Идет экспорт в SVG...",
+    help: "Помощь",
+    about: "О программе"
 };
 
 pub const EN_LOCALE: Locale = Locale {
@@ -78,6 +86,10 @@ pub const EN_LOCALE: Locale = Locale {
     muxes: "Muxes",
     input_outputs: "I/O",
     custom_units: "Custom units",
+    export_to_svg: "Export to SVG",
+    ongoing_export_to_svg: "Exporting to svg...",
+    help: "Help",
+    about: "About"
 };
 
 pub fn get_system_default_locale() -> LocaleType {

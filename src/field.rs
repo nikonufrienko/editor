@@ -26,8 +26,22 @@ pub struct FieldState {
     pub rect: Rect,
     pub label_font: FontId,
     pub label_visible: bool,
-    pub cursor_pos: Option<Pos2>,
+    pub cursor_pos: Option<Pos2>
 }
+
+// Dummy state parameters used to generate SVG
+pub const SVG_DUMMY_STATE: FieldState = FieldState {
+    scale: 1.0 / Field::BASE_GRID_SIZE,
+    offset: vec2(0.0, 0.0),
+    grid_size: 1.0,
+    cursor_pos: None,
+    label_font: FontId {
+        size: 0.8,
+        family: egui::FontFamily::Monospace,
+    },
+    label_visible: true,
+    rect: Rect::from_min_max(pos2(0.0, 0.0), pos2(0.0, 0.0)),
+};
 
 impl FieldState {
     pub fn grid_to_screen(&self, grid_pos: &GridPos) -> Pos2 {
@@ -159,7 +173,7 @@ impl Field {
             self.state.grid_size - (self.state.offset.y.abs() % self.state.grid_size)
         };
 
-        let stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 2));
+        let stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 10));
         let mut shapes = vec![];
 
         match self.grid_type {

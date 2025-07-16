@@ -3,6 +3,7 @@ use std::{
     i32, usize,
 };
 
+use egui::Color32;
 use rstar::{AABB, PointDistance, RTree, RTreeObject};
 use serde::{Deserialize, Serialize};
 
@@ -309,6 +310,50 @@ impl GridBD {
             nets: self.nets.clone(),
         })
         .ok()
+    }
+
+    pub fn dump_to_svg(&self) -> String {
+        let [c_min_x, c_min_y, c_max_x, c_max_y];
+        if self.components.values().len() >= 1 {
+            let c_bbox = self.tree.root().envelope();
+            [c_min_x, c_min_y] = c_bbox.lower();
+            [c_max_x, c_max_y] = c_bbox.upper();
+        } else {
+            [c_min_x, c_min_y, c_max_x, c_max_y] = [0,0,0,0];
+        }
+
+        let [n_min_x, n_min_y, n_max_x, n_max_y];
+        if self.nets.values().len() >= 1 {
+            let n_bbox = self.net_tree.root().envelope();
+            [n_min_x, n_min_y] = n_bbox.lower();
+            [n_max_x, n_max_y] = n_bbox.upper();
+        } else {
+            [n_min_x, n_min_y, n_max_x, n_max_y] = [0,0,0,0];
+        }
+
+        let min_x = c_min_x.min(n_min_x);
+        let min_y = c_min_y.min(n_min_y);
+        let max_x = c_max_x.max(n_max_x);
+        let max_y = c_max_y.max(n_max_y);
+
+        // Fixme:
+        let w = max_x - min_x + 2;
+        let h: i32 = max_y - min_y + 2;
+        let offset = grid_pos(-min_x, -min_y);
+        let body = self
+            .components
+            .values()
+            .map(|comp| comp.to_svg(offset))
+            .chain(self.nets.values().map(|net| {
+                net.to_svg(Color32::DARK_GRAY, 0.1, offset, &self)
+                    .unwrap_or_default()
+            }))
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        format!(
+            "<svg viewBox=\"0 0 {w} {h}\" xmlns=\"http://www.w3.org/2000/svg\" style=\"background-color: #1E1E1E\">\n{body}\n</svg>"
+        )
     }
 
     pub fn load_from_json(json: String) -> Result<Self, serde_json::Error> {

@@ -115,14 +115,14 @@ impl PreviewPanel {
         let mut expand_all_groups = false;
 
         egui::SidePanel::left("left_panel")
-            .resizable(true)
+            .resizable(true).min_width(180.0)   // FIXME
             .show_animated(ctx, self.is_expanded, |ui| {
-                ui.heading(RichText::new(locale.components).strong());
+                ui.add(egui::Label::new(RichText::new(locale.components).heading().strong()).selectable(false));
                 ui.separator();
 
                 // Filtering:
                 ui.horizontal(|ui| {
-                    ui.label(locale.filter);
+                    ui.add(egui::Label::new(locale.filter).selectable(false));
                     if ui
                         .add(
                             egui::TextEdit::singleline(&mut self.query)
@@ -157,7 +157,7 @@ impl PreviewPanel {
                                 })
                                 .show(ui, |ui| {
                                     for item_id in 0..self.component_lib[group_id].len() {
-                                        ui.label(self.component_lib[group_id][item_id].name);
+                                        ui.add(egui::Label::new(self.component_lib[group_id][item_id].name).selectable(false));
                                         egui::Frame::default()
                                             .stroke(ui.visuals().window_stroke)
                                             .corner_radius(5.0)

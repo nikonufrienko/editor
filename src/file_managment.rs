@@ -14,6 +14,7 @@ use crate::{grid_db::GridBD, locale::Locale};
 enum FileManagerState {
     OpenFile,
     SaveFile,
+    ExportSVG,
     None,
     Error(&'static str),
 }
@@ -99,6 +100,9 @@ impl FileManager {
                         self.done.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
                 }
+                FileManagerState::ExportSVG => {
+                    ui.label(locale.ongoing_export_to_svg);
+                }
                 _ => {}
             });
             match self.state {
@@ -128,16 +132,6 @@ impl FileManager {
             self.check_dropping_files(ctx, locale, bd);
         }
     }
-    /*
-    #[cfg(target_arch = "wasm32")]
-    fn update(&mut self, ctx: &egui::Context, locale: &Locale) {
-        match self.state {
-            FileManagerState::LoadFile => {
-                egui::modal::Modal::new("FileManager".into()).show(ctx, |ui|{ ui.label(locale.opening_file)});
-            }
-            _ => {}
-        }
-    } */
 
     fn load_data(data: Vec<u8>, locale: &'static Locale) -> Result<GridBD, &'static str> {
         if let Ok(json) = String::from_utf8(data) {
@@ -204,15 +198,12 @@ impl FileManager {
                 use eframe::wasm_bindgen::JsCast;
                 use web_sys::{Blob, Url};
 
-                // Создаем Blob с содержимым
                 let blob =
                     Blob::new_with_str_sequence(&js_sys::Array::of1(&js_sys::JsString::from(data)))
                         .unwrap();
 
-                // Создаем URL для Blob
                 let url = Url::create_object_url_with_blob(&blob).unwrap();
 
-                // Создаем временную ссылку для скачивания
                 let window = web_sys::window().unwrap();
                 let document = window.document().unwrap();
                 let a = document
@@ -229,12 +220,80 @@ impl FileManager {
                 a.click();
                 document.body().unwrap().remove_child(&a).unwrap();
 
-                // Освобождаем ресурсы
                 Url::revoke_object_url(&url).unwrap();
                 self.done.store(true, std::sync::atomic::Ordering::Relaxed);
             }
         } else {
             // self.errors.lock().push(error_msg.into());
+        }
+    }
+
+    pub fn export_to_svg(&mut self, bd: &GridBD) {
+        self.state = FileManagerState::ExportSVG;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let bd_arc = Arc::new(bd);
+            let data = bd_arc.dump_to_svg();
+            let arc = self.done.clone().clone();
+            Self::execute(async move {
+                if let Some(file) = rfd::AsyncFileDialog::new()
+                    .set_file_name("1.svg")
+                    .save_file()
+                    .await
+                {
+                    file.write(data.as_bytes()).await.ok();
+                }
+                arc.store(true, std::sync::atomic::Ordering::Relaxed);
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let data = bd.dump_to_svg();
+            use eframe::wasm_bindgen::JsCast;
+            use eframe::wasm_bindgen::prelude::Closure;
+            use web_sys::{Blob, BlobPropertyBag, Url};
+
+            // Создаем Blob с правильным MIME-типом
+            let mut blob_properties = BlobPropertyBag::new();
+            blob_properties.type_("image/svg+xml");
+
+            let blob = Blob::new_with_str_sequence_and_options(
+                &js_sys::Array::of1(&js_sys::JsString::from(data)),
+                &blob_properties,
+            )
+            .unwrap();
+
+            let url = Url::create_object_url_with_blob(&blob).unwrap();
+
+            let window = web_sys::window().unwrap();
+            let opened = window.open_with_url_and_target(&url, "_blank").unwrap();
+
+            // Проверяем, что окно открылось (может быть заблокировано popup-блокером)
+            if opened.is_some() {
+                // Освобождаем ресурсы с задержкой
+                let closure = Closure::once(move || {
+                    Url::revoke_object_url(&url).unwrap();
+                });
+
+                window
+                    .set_timeout_with_callback_and_timeout_and_arguments_0(
+                        closure.as_ref().unchecked_ref(),
+                        5000,
+                    )
+                    .unwrap();
+
+                closure.forget();
+            } else {
+                // Fallback: если popup заблокирован, показываем alert с инструкцией
+                window
+                    .alert_with_message(
+                        "Popup blocked! Please allow popups for this site and try again.",
+                    )
+                    .unwrap();
+                Url::revoke_object_url(&url).unwrap();
+            }
+
+            self.done.store(true, std::sync::atomic::Ordering::Relaxed);
         }
     }
 }

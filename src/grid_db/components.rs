@@ -6,14 +6,14 @@ use std::{
 use egui::{
     Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2,
     epaint::{PathShape, PathStroke, TextShape},
-    vec2,
+    pos2, vec2,
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use crate::{
-    field::{Field, FieldState},
-    grid_db::{GridBD, GridBDConnectionPoint, GridRect, Id, grid_rect, mesh_line},
+    field::{Field, FieldState, SVG_DUMMY_STATE},
+    grid_db::{GridBD, GridBDConnectionPoint, GridRect, Id, grid_rect, mesh_line, svg_line},
 };
 
 use super::PrimitiveComponent;
@@ -136,6 +136,38 @@ impl Net {
             (segment_id == 0).then_some(self.start_point),
             (segment_id == self.points.len() - 2).then_some(self.end_point),
         ))
+    }
+
+    pub fn to_svg(
+        &self,
+        color: Color32,
+        width: f32,
+        offset: GridPos,
+        bd: &GridBD,
+    ) -> Option<String> {
+        if self.points.is_empty() {
+            return Some(String::new());
+        }
+        let offset_vec2 = vec2(offset.x as f32, offset.y as f32);
+        let first_point = bd
+            .get_component(&self.start_point.component_id)?
+            .get_connection_position(self.start_point.connection_id, &SVG_DUMMY_STATE)?
+            + offset_vec2;
+        let last_point = bd
+            .get_component(&self.end_point.component_id)?
+            .get_connection_position(self.end_point.connection_id, &SVG_DUMMY_STATE)?
+            + offset_vec2;
+        let mut points = Vec::with_capacity(self.points.len() + 2);
+        points.push(first_point);
+
+        for i in 0..self.points.len() {
+            points.push(pos2(
+                (self.points[i].x + offset.x) as f32 + 0.5,
+                (self.points[i].y + offset.y) as f32 + 0.5,
+            ));
+        }
+        points.push(last_point);
+        Some(svg_line(&points, color, width))
     }
 }
 
@@ -329,6 +361,13 @@ impl Component {
                 .get(connection_id)
                 .is_some_and(|p| p.is_hovered(state, &unit.pos)),
             Component::Primitive(g) => g.is_connection_hovered(connection_id, state),
+        }
+    }
+
+    pub fn to_svg(&self, offset: GridPos) -> String {
+        match self {
+            Component::Primitive(g) => g.get_svg(offset),
+            _ => "".into(), // TODO: fixme
         }
     }
 }

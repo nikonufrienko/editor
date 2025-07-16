@@ -12,7 +12,7 @@ use lyon::{
 use std::cell::RefCell;
 
 pub fn tesselate_polygon(
-    points: Vec<Pos2>,
+    points: &Vec<Pos2>,
     fill_color: Color32,
     stroked: bool,
     stroke_color: Color32,
@@ -141,4 +141,75 @@ pub fn mesh_line(pts: Vec<Pos2>, width: f32, color: Color32) -> Mesh {
         ]);
     }
     mesh
+}
+
+pub fn svg_polygon(
+    points: &Vec<Pos2>,
+    fill_color: Color32,
+    stroke_color: Color32,
+    stroke_w: f32,
+) -> String {
+    fill_color.to_hex();
+    let points_str = points
+        .iter()
+        .map(|p| format!("{} {}", p.x, p.y))
+        .collect::<Vec<String>>()
+        .join(" ");
+    format!(
+        "<polygon points=\"{}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\" />",
+        points_str,
+        fill_color.to_hex(),
+        stroke_color.to_hex(),
+        stroke_w
+    )
+}
+
+pub fn svg_line(points: &Vec<Pos2>, color: Color32, width: f32) -> String {
+    let mut path = String::new();
+    path.push_str(&format!("M {} {}", points[0].x, points[0].y));
+
+    for i in 1..points.len() - 1 {
+        path.push_str(&format!(" L {} {}", points[i].x, points[i].y));
+    }
+    path.push_str(&format!(
+        " L {} {}",
+        points[points.len() - 1].x,
+        points[points.len() - 1].y
+    ));
+
+    format!(
+        r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none"/>"#,
+        path,
+        color.to_hex(),
+        width
+    )
+}
+
+pub fn svg_circle_filled(center: Pos2, radius: f32, fill_color: Color32) -> String {
+    format!(
+        r#"<circle cx="{}" cy="{}" r="{}" fill="{}"/>"#,
+        center.x,
+        center.y,
+        radius,
+        fill_color.to_hex()
+    )
+}
+
+#[allow(unused)]
+pub fn svg_circle(
+    center: Pos2,
+    radius: f32,
+    fill_color: Color32,
+    stroke_color: Color32,
+    stroke_width: f32,
+) -> String {
+    format!(
+        r#"<circle cx="{}" cy="{}" r="{}" fill="{}" stroke="{}" stroke-width="{}"/>"#,
+        center.x,
+        center.y,
+        radius,
+        fill_color.to_hex(),
+        stroke_color.to_hex(),
+        stroke_width
+    )
 }
