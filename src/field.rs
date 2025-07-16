@@ -173,7 +173,7 @@ impl Field {
             self.state.grid_size - (self.state.offset.y.abs() % self.state.grid_size)
         };
 
-        let stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 10));
+        let stroke = Stroke::new(1.0, ui.visuals().strong_text_color().gamma_multiply(0.1));
         let mut shapes = vec![];
 
         match self.grid_type {
@@ -222,7 +222,7 @@ impl Field {
                             shapes.push(Shape::circle_filled(
                                 pos2(x, y),
                                 1.0,
-                                Color32::from_rgba_unmultiplied(255, 255, 255, 50),
+                                stroke.color,
                             ));
                         }
                     }
@@ -277,10 +277,10 @@ impl Field {
         self.state.cursor_pos = response.hover_pos();
     }
 
-    fn handle_drag_resp(&mut self, painter: &Painter) {
+    fn handle_drag_resp(&mut self, painter: &Painter, fill_color: Color32) {
         match std::mem::take(&mut self.external_drag_resp) {
             DragComponentResponse::Dragged { dim, pos } => {
-                draw_component_drag_preview(&self.grid_db, &self.state, dim, painter, pos, None);
+                draw_component_drag_preview(&self.grid_db, &self.state, dim, painter, pos, None, fill_color);
             }
             DragComponentResponse::Released { pos, mut component } => {
                 component.set_pos(self.state.screen_to_grid(pos));
@@ -330,7 +330,7 @@ impl Field {
             &self.state,
             &ui.painter().with_clip_rect(self.state.rect),
         );
-        self.handle_drag_resp(&ui.painter().with_clip_rect(self.state.rect));
+        self.handle_drag_resp(&ui.painter().with_clip_rect(self.state.rect), ui.visuals().strong_text_color().gamma_multiply(0.08));
         self.drag_manager
             .draw_preview(&self.grid_db, &self.state, &painter, ui);
     }
@@ -559,6 +559,7 @@ fn draw_component_drag_preview(
     painter: &Painter,
     pos: Pos2,
     component_id: Option<Id>,
+    fill_color: Color32
 ) {
     let p0 = state.screen_to_grid(pos);
     let mut result = vec![];
@@ -576,7 +577,7 @@ fn draw_component_drag_preview(
                     &cell,
                     1,
                     1,
-                    Color32::from_rgba_unmultiplied(255, 255, 255, 25),
+                    fill_color,
                 ));
             } else {
                 result.extend(blocked_cell(state, &cell));
@@ -965,6 +966,7 @@ impl DragManager {
                         painter,
                         pos - grab_ofs,
                         Some(id),
+                        ui.visuals().strong_text_color().gamma_multiply(0.08)
                     );
                 }
             }

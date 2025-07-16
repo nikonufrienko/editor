@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use eframe::egui;
-use egui::{CursorIcon, Id, KeyboardShortcut, LayerId, Modifiers, Rect, Sense, Stroke, vec2};
+use egui::{vec2, CursorIcon, Id, KeyboardShortcut, LayerId, Modifiers, Rect, Sense, Stroke, Theme, Visuals};
 
 use crate::{
     field::{Field, GridType},
@@ -23,6 +23,7 @@ fn main() {
     let options = eframe::NativeOptions {
         multisampling: 8,
         dithering: false,
+
         viewport: egui::ViewportBuilder::default().with_drag_and_drop(true),
         ..Default::default()
     };
@@ -89,6 +90,7 @@ struct EditorApp {
     file_manager: FileManager,
     helpers: Helpers,
     file_name: String,
+    theme : Theme
 }
 
 impl EditorApp {
@@ -100,6 +102,7 @@ impl EditorApp {
             file_manager: FileManager::new(),
             helpers: Helpers::new(),
             file_name: String::new(),
+            theme: Theme::Dark
         }
     }
 }
@@ -121,6 +124,10 @@ impl EditorApp {
 
 impl eframe::App for EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        match self.theme {
+            Theme::Dark => ctx.set_visuals(Visuals::dark()),
+            Theme::Light => ctx.set_visuals(Visuals::light()),
+        }
         let locale: &'static locale::Locale = self.locale.locale();
         let foreground: LayerId = LayerId::new(egui::Order::Foreground, Id::new("foreground"));
         self.file_manager
@@ -169,6 +176,10 @@ impl eframe::App for EditorApp {
                                     other_local.locale().locale_name,
                                 );
                             }
+                        });
+                        ui.menu_button(locale.theme, |ui| {
+                            ui.radio_value(&mut self.theme, Theme::Dark, locale.theme_dark);
+                            ui.radio_value(&mut self.theme, Theme::Light, locale.theme_light);
                         });
                     });
                     ui.menu_button(locale.help, |ui| {

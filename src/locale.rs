@@ -31,6 +31,9 @@ pub struct Locale {
     pub help: &'static str,
     pub about: &'static str,
     pub project_name: &'static str,
+    pub theme: &'static str,
+    pub theme_dark: &'static str,
+    pub theme_light: &'static str,
 }
 
 pub const RU_LOCALE: Locale = Locale {
@@ -62,6 +65,9 @@ pub const RU_LOCALE: Locale = Locale {
     help: "Помощь",
     about: "О программе",
     project_name: "Имя проекта:",
+    theme: "Тема",
+    theme_dark: "Темная",
+    theme_light: "Светлая"
 };
 
 pub const EN_LOCALE: Locale = Locale {
@@ -93,6 +99,9 @@ pub const EN_LOCALE: Locale = Locale {
     help: "Help",
     about: "About",
     project_name: "Project name:",
+    theme: "Theme",
+    theme_dark: "Dark",
+    theme_light: "Light"
 };
 
 pub fn get_system_default_locale() -> LocaleType {
