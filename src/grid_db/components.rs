@@ -4,16 +4,14 @@ use std::{
 };
 
 use egui::{
-    Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2,
-    epaint::{PathShape, PathStroke, TextShape},
-    pos2, vec2,
+    epaint::{PathShape, PathStroke, TextShape}, pos2, vec2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Theme, Vec2
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use crate::{
     field::{Field, FieldState, SVG_DUMMY_STATE},
-    grid_db::{GridBD, GridBDConnectionPoint, GridRect, Id, grid_rect, mesh_line, svg_line},
+    grid_db::{grid_rect, mesh_line, svg_line, ComponentColor, GridBD, GridBDConnectionPoint, GridRect, Id, PrimitiveType},
 };
 
 use super::PrimitiveComponent;
@@ -183,10 +181,9 @@ pub struct Unit {
 impl Unit {
     const ACTIONS: &'static [ComponentAction] = &[ComponentAction::Remove];
 
-    pub fn display(&self, state: &FieldState, painter: &Painter) {
-        // TODO: Add LOD level
-        // 1. Display unit with ports and labels
-        // 2. Display display only Rectangle
+    pub fn display(&self, state: &FieldState, painter: &Painter, theme: Theme) {
+        let fill_color = theme.get_fill_color();
+        let stroke_color = theme.get_stroke_color();
         let rect = Rect::from_min_size(
             state.grid_to_screen(&self.pos),
             vec2(
@@ -194,17 +191,17 @@ impl Unit {
                 state.grid_size * self.height as f32,
             ),
         );
-        painter.rect_filled(rect, 0.5 * state.scale, Color32::GRAY);
+        painter.rect_filled(rect, 0.5 * state.scale, fill_color);
 
         if state.scale > Field::LOD_LEVEL_MIN_SCALE {
             painter.rect_stroke(
                 rect,
                 0.5 * state.scale,
-                Stroke::new(1.0 * state.scale, Color32::DARK_GRAY),
+                Stroke::new(1.0 * state.scale, stroke_color),
                 StrokeKind::Outside,
             );
             for port in &self.ports {
-                port.display(&self.pos, state, &painter);
+                port.display(&self.pos, state, &painter, theme);
             }
         }
     }
@@ -233,10 +230,10 @@ impl Component {
         )
     }
 
-    pub fn display(&self, state: &FieldState, painter: &Painter) {
+    pub fn display(&self, state: &FieldState, painter: &Painter, theme: Theme) {
         match self {
-            Component::Unit(u) => u.display(state, painter),
-            Component::Primitive(g) => g.display(state, painter),
+            Component::Unit(u) => u.display(state, painter, theme),
+            Component::Primitive(g) => g.display(state, painter, theme),
         }
     }
 
@@ -261,7 +258,7 @@ impl Component {
         }
     }
 
-    pub fn draw_preview(&self, rect: &Rect, painter: &Painter) {
+    pub fn draw_preview(&self, rect: &Rect, painter: &Painter, theme: Theme) {
         let (mut w, mut h) = self.get_dimension();
         w += 2;
         h += 2;
@@ -280,7 +277,7 @@ impl Component {
             label_visible: true,
             cursor_pos: None,
         };
-        self.display(&state, painter);
+        self.display(&state, painter, theme);
     }
 
     pub fn get_dimension(&self) -> (i32, i32) {
@@ -364,10 +361,21 @@ impl Component {
         }
     }
 
-    pub fn to_svg(&self, offset: GridPos) -> String {
+    pub fn to_svg(&self, offset: GridPos, theme: Theme) -> String {
         match self {
-            Component::Primitive(g) => g.get_svg(offset),
+            Component::Primitive(g) => g.get_svg(offset, theme),
             _ => "".into(), // TODO: fixme
+        }
+    }
+
+    /// Should I only check the overlap for this component?
+    pub fn is_overlap_only(&self) -> bool {
+        match self {
+            Component::Primitive(g) => match g.typ {
+                PrimitiveType::Point => true,
+                _ => false
+            },
+            _ => false
         }
     }
 }
@@ -393,18 +401,21 @@ impl Port {
             }
     }
 
-    pub fn display(&self, unit_pos: &GridPos, state: &FieldState, painter: &Painter) {
+    pub fn display(&self, unit_pos: &GridPos, state: &FieldState, painter: &Painter, theme: Theme) {
+        let fill_color = theme.get_fill_color();
+        let stroke_color = theme.get_stroke_color();
+        let text_color = theme.get_text_color();
         let angle = self.align.rotation_angle();
         let pos = self.center(unit_pos, state);
-        painter.circle_filled(pos, state.grid_size * Self::PORT_SCALE, Color32::GRAY);
+        painter.circle_filled(pos, state.grid_size * Self::PORT_SCALE, fill_color);
         painter.circle_stroke(
             pos,
             state.grid_size * Self::PORT_SCALE,
-            Stroke::new(1.0 * state.scale, Color32::DARK_GRAY),
+            Stroke::new(1.0 * state.scale, stroke_color),
         );
         if state.label_visible {
             let galley = painter.fonts(|fonts| {
-                fonts.layout_no_wrap(self.name.clone(), state.label_font.clone(), Color32::WHITE)
+                fonts.layout_no_wrap(self.name.clone(), state.label_font.clone(), text_color)
             });
             let label_rect = galley.rect;
 
@@ -428,7 +439,7 @@ impl Port {
                 }
                 ConnectionAlign::BOTTOM => {}
             }
-            painter.add(TextShape::new(text_pos, galley, Color32::WHITE).with_angle(angle));
+            painter.add(TextShape::new(text_pos, galley, text_color).with_angle(angle));
         }
     }
 
@@ -483,10 +494,10 @@ impl NetSegment {
         self.pos1.y == self.pos2.y
     }
 
-    pub fn get_mesh(&self, bd: &GridBD, state: &FieldState) -> Mesh {
+    pub fn get_mesh(&self, bd: &GridBD, state: &FieldState, theme: Theme) -> Mesh {
         let w = (state.grid_size * 0.1).max(1.0);
         let ofs = Vec2::new(0.5 * state.grid_size, 0.5 * state.grid_size);
-        let color = Color32::DARK_GRAY;
+        let color = theme.get_stroke_color();
 
         let p1 = state.grid_to_screen(&self.pos1) + ofs;
         let p2 = state.grid_to_screen(&self.pos2) + ofs;

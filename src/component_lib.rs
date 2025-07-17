@@ -29,6 +29,14 @@ fn get_io() -> Vec<ComponentLibEntry> {
                 rotation: crate::grid_db::Rotation::ROT0,
             }),
         },
+        ComponentLibEntry {
+            name: "POINT",
+            component: Component::Primitive(PrimitiveComponent {
+                typ: PrimitiveType::Point,
+                pos: grid_pos(1, 1), // Default preview pos
+                rotation: crate::grid_db::Rotation::ROT0,
+            }),
+        },
     ]
 }
 
@@ -72,22 +80,6 @@ fn get_gates() -> Vec<ComponentLibEntry> {
             }),
         },
         ComponentLibEntry {
-            name: "AND3",
-            component: Component::Primitive(PrimitiveComponent {
-                typ: PrimitiveType::And(3),
-                pos: grid_pos(1, 1), // Default preview pos
-                rotation: crate::grid_db::Rotation::ROT0,
-            }),
-        },
-        ComponentLibEntry {
-            name: "AND4",
-            component: Component::Primitive(PrimitiveComponent {
-                typ: PrimitiveType::And(4),
-                pos: grid_pos(1, 1), // Default preview pos
-                rotation: crate::grid_db::Rotation::ROT0,
-            }),
-        },
-        ComponentLibEntry {
             name: "OR2",
             component: Component::Primitive(PrimitiveComponent {
                 typ: PrimitiveType::Or(2),
@@ -96,9 +88,17 @@ fn get_gates() -> Vec<ComponentLibEntry> {
             }),
         },
         ComponentLibEntry {
-            name: "OR4",
+            name: "XOR2",
             component: Component::Primitive(PrimitiveComponent {
-                typ: PrimitiveType::Or(4),
+                typ: PrimitiveType::Xor(2),
+                pos: grid_pos(1, 1), // Default preview pos
+                rotation: crate::grid_db::Rotation::ROT0,
+            }),
+        },
+        ComponentLibEntry {
+            name: "NAND2",
+            component: Component::Primitive(PrimitiveComponent {
+                typ: PrimitiveType::Nand(2),
                 pos: grid_pos(1, 1), // Default preview pos
                 rotation: crate::grid_db::Rotation::ROT0,
             }),
@@ -107,14 +107,6 @@ fn get_gates() -> Vec<ComponentLibEntry> {
             name: "NOT",
             component: Component::Primitive(PrimitiveComponent {
                 typ: PrimitiveType::Not,
-                pos: grid_pos(1, 1), // Default preview pos
-                rotation: crate::grid_db::Rotation::ROT0,
-            }),
-        },
-        ComponentLibEntry {
-            name: "XOR2",
-            component: Component::Primitive(PrimitiveComponent {
-                typ: PrimitiveType::Xor(2),
                 pos: grid_pos(1, 1), // Default preview pos
                 rotation: crate::grid_db::Rotation::ROT0,
             }),

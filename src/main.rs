@@ -101,33 +101,15 @@ impl EditorApp {
             locale: get_system_default_locale(),
             file_manager: FileManager::new(),
             helpers: Helpers::new(),
-            file_name: String::new(),
+            file_name: "Untitled".into(),
             theme: Theme::Dark
         }
     }
 }
 
-const DUMMY_NAME: &'static str = "Untitled";
-impl EditorApp {
-    fn save(&mut self) {
-        let dummy = &DUMMY_NAME.into();
-        self.file_manager.save_file(
-            &self.field.grid_db,
-            if self.file_name.is_empty() {
-                dummy
-            } else {
-                &self.file_name
-            },
-        );
-    }
-}
-
 impl eframe::App for EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        match self.theme {
-            Theme::Dark => ctx.set_visuals(Visuals::dark()),
-            Theme::Light => ctx.set_visuals(Visuals::light()),
-        }
+        ctx.set_theme(self.theme);
         let locale: &'static locale::Locale = self.locale.locale();
         let foreground: LayerId = LayerId::new(egui::Order::Foreground, Id::new("foreground"));
         self.file_manager
@@ -142,19 +124,11 @@ impl eframe::App for EditorApp {
                             ui.close();
                         }
                         if ui.button(locale.save).clicked() {
-                            self.save();
+                            self.file_manager.save_file(&self.field.grid_db, &self.file_name);
                             ui.close();
                         }
                         if ui.button(locale.export_to_svg).clicked() {
-                            let dummy = &DUMMY_NAME.into();
-                            self.file_manager.export_to_svg(
-                                &self.field.grid_db,
-                                if self.file_name.is_empty() {
-                                    dummy
-                                } else {
-                                    &self.file_name
-                                },
-                            );
+                            self.file_manager.start_export_svg(self.theme);
                             ui.close();
                         }
                     });
@@ -195,7 +169,7 @@ impl eframe::App for EditorApp {
                         let h = ui.available_height();
                         ui.add(
                             egui::TextEdit::singleline(&mut self.file_name)
-                                .hint_text(DUMMY_NAME)
+                                .hint_text(locale.project_name)
                                 .background_color(ui.visuals().faint_bg_color)
                                 .desired_width(w - 10.0 - 2.0 * h)
                                 .horizontal_align(egui::Align::Center),
@@ -222,7 +196,7 @@ impl eframe::App for EditorApp {
         if ctx.input_mut(|state| {
             state.consume_shortcut(&KeyboardShortcut::new(Modifiers::CTRL, egui::Key::S))
         }) {
-            self.save();
+            self.file_manager.save_file(&self.field.grid_db, &self.file_name);
         }
     }
 }

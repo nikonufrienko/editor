@@ -19,12 +19,13 @@ Main features:
     - [x] OR
     - [x] NOT
     - [x] XOR
-    - [ ] NAND
+    - [x] NAND
     - [ ] NOR
     - [x] MUX
-    - [ ] POINT
+    - [x] POINT
     - [ ] DFF_S_RST_N (D-type flip-flop with synchronous reset_n)
     - [ ] DFF_A_RST_N (D-type flip-flop with asynchronous reset_n)
+    - [ ] TEXT LABEL
 * [ ] Add component parameterization settings.
 * Add SVG export:
     - [x] For connections (Net).
@@ -33,3 +34,5 @@ Main features:
 * Fix bugs:
     - [ ] Bug in Net construction.
     - [ ] Bug when rotating a component with connected Nets.
+* In the distant future:
+    - [ ] Add support for comments in Markdown format.

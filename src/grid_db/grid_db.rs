@@ -3,13 +3,13 @@ use std::{
     i32, usize,
 };
 
-use egui::Color32;
+use egui::{Color32, Theme};
 use rstar::{AABB, PointDistance, RTree, RTreeObject};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     field::FieldState,
-    grid_db::{Component, GridPos, Net, NetSegment, grid_pos},
+    grid_db::{grid_pos, Component, ComponentColor, GridPos, Net, NetSegment},
 }; // AABB = Axis-Aligned Bounding Box (прямоугольник)
 type Point = [i32; 2]; // Точка (x, y)
 
@@ -19,6 +19,12 @@ pub struct GridRect {
     pub id: usize,
     pub min: GridPos,
     pub max: GridPos,
+}
+
+impl GridRect {
+    fn contains(&self, pos:GridPos) -> bool {
+        pos.x >= self.min.x && pos.y >= self.min.y && pos.x <= self.max.x && pos.y <= self.max.y
+    }
 }
 
 impl PartialEq for GridRect {
@@ -257,18 +263,31 @@ impl GridBD {
             .collect()
     }
 
-    pub fn is_free_cell(&self, cell: GridPos) -> bool {
-        if let Some(a) = self.tree.nearest_neighbor(&cell.to_point()) {
-            a.distance_2(&cell.to_point()) > 2
-        } else {
-            true
+    /// Is cell free to place a new component
+    pub fn is_free_cell(&self, cell: GridPos, overlap_only: bool) -> bool {
+        for nearest in self.tree.locate_within_distance(cell.to_point(), 2) {
+            if overlap_only || self.get_component(&nearest.id).unwrap().is_overlap_only() {
+                if nearest.contains(cell) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
         }
+        return true;
     }
 
+    /// Is cell available for moving an existing component
     pub fn is_available_cell(&self, cell: GridPos, component_id: Id) -> bool {
         for nearest in self.tree.locate_within_distance(cell.to_point(), 2) {
             if nearest.id != component_id {
-                return false;
+                if self.get_component(&component_id).unwrap().is_overlap_only() || self.get_component(&nearest.id).unwrap().is_overlap_only() { // Check only overlap
+                    if nearest.contains(cell) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
             }
         }
         return true;
@@ -312,7 +331,7 @@ impl GridBD {
         .ok()
     }
 
-    pub fn dump_to_svg(&self) -> String {
+    pub fn dump_to_svg(&self, theme: Theme) -> String {
         let [c_min_x, c_min_y, c_max_x, c_max_y];
         if self.components.values().len() >= 1 {
             let c_bbox = self.tree.root().envelope();
@@ -336,6 +355,8 @@ impl GridBD {
         let max_x = c_max_x.max(n_max_x);
         let max_y = c_max_y.max(n_max_y);
 
+        let backgound = theme.get_bg_color().to_hex();
+
         // Fixme:
         let w = max_x - min_x + 2;
         let h: i32 = max_y - min_y + 2;
@@ -343,16 +364,16 @@ impl GridBD {
         let body = self
             .components
             .values()
-            .map(|comp| comp.to_svg(offset))
+            .map(|comp| comp.to_svg(offset, theme))
             .chain(self.nets.values().map(|net| {
-                net.to_svg(Color32::DARK_GRAY, 0.1, offset, &self)
+                net.to_svg(theme.get_stroke_color(), 0.1, offset, &self)
                     .unwrap_or_default()
             }))
             .collect::<Vec<String>>()
             .join("\n");
 
         format!(
-            "<svg viewBox=\"0 0 {w} {h}\" xmlns=\"http://www.w3.org/2000/svg\" style=\"background-color: #1E1E1E\">\n{body}\n</svg>"
+            "<svg viewBox=\"0 0 {w} {h}\" xmlns=\"http://www.w3.org/2000/svg\" style=\"background-color: {backgound}\">\n{body}\n</svg>"
         )
     }
 

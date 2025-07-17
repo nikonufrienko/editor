@@ -1,5 +1,5 @@
 use egui::epaint::Vertex;
-use egui::{Color32, Mesh, Pos2, Vec2, pos2};
+use egui::{pos2, Color32, Mesh, Pos2, Theme, Vec2};
 use lyon::geom::point;
 use lyon::{
     path::{LineCap, LineJoin, Path},
@@ -212,4 +212,43 @@ pub fn svg_circle(
         stroke_color.to_hex(),
         stroke_width
     )
+}
+
+
+pub trait ComponentColor {
+    fn get_fill_color(&self) -> Color32;
+    fn get_stroke_color(&self) -> Color32;
+    fn get_text_color(&self) -> Color32;
+    fn get_bg_color(&self) -> Color32;
+
+}
+
+impl ComponentColor for Theme {
+    fn get_fill_color(&self) -> Color32 {
+        match self {
+            Self::Dark => Color32::GRAY,
+            Self::Light => Color32::WHITE,
+        }
+    }
+    fn get_stroke_color(&self) -> Color32 {
+        match self {
+            Self::Dark => Color32::DARK_GRAY,
+            Self::Light => Color32::BLACK,
+        }
+    }
+
+    fn get_text_color(&self) -> Color32 {
+        match self {
+            Self::Dark => Color32::WHITE,
+            Self::Light => Color32::DARK_GRAY,
+        }
+    }
+
+    /// Used for SVG:
+    fn get_bg_color(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::WHITE,
+            Self::Dark => Color32::from_rgb(30, 30, 30),
+        }
+    }
 }

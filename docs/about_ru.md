@@ -19,12 +19,13 @@
     - [x] OR
     - [x] NOT
     - [x] XOR
-    - [ ] NAND
+    - [x] NAND
     - [ ] NOR
     - [x] MUX
-    - [ ] POINT
+    - [x] POINT
     - [ ] DFF_S_RST_N (D-type flip-flop with synchronous reset_n)
     - [ ] DFF_A_RST_N (D-type flip-flop with asynchronous reset_n)
+    - [ ] TEXT LABEL
 * [ ] Добавить настройку параметризации компонентов.
 * Добавить экспорт в SVG:
     - [x] Для соединений (Net).
@@ -33,3 +34,6 @@
 * Исправить баги:
     - [ ] Баг при построении Net.
     - [ ] Баг при повороте компонента с подключенными Net.
+
+* В далёком будущем:
+    - [ ] Добавить поддержку комментариев в формате Markdown.

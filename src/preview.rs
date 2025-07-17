@@ -17,7 +17,7 @@ pub struct PreviewPanel {
 }
 
 pub enum DragComponentResponse {
-    Dragged { pos: Pos2, dim: (i32, i32) },
+    Dragged { pos: Pos2, dim: (i32, i32), only_overlap: bool },
     Released { pos: Pos2, component: Component },
     None,
 }
@@ -53,7 +53,7 @@ impl PreviewPanel {
         let response = ui.allocate_rect(rect, Sense::all());
         let painter = ui.painter().with_clip_rect(rect);
         let comp = comp;
-        comp.draw_preview(&rect, &painter);
+        comp.draw_preview(&rect, &painter, ui.ctx().theme());
         let field_grid_size = field_scale * Field::BASE_GRID_SIZE;
         if let Some(hover_pos) = response.hover_pos() {
             if response.dragged() {
@@ -66,12 +66,13 @@ impl PreviewPanel {
                     (h + 2) as f32 * field_grid_size,
                 );
                 let rect2 = Rect::from_center_size(hover_pos, rect_size);
-                comp.draw_preview(&rect2, &painter);
+                comp.draw_preview(&rect2, &painter, ui.ctx().theme());
                 if !rect.contains(hover_pos) {
                     let ofs_vec = vec2(field_grid_size, field_grid_size);
                     drag_response = DragComponentResponse::Dragged {
                         pos: rect2.min + ofs_vec,
                         dim: (w, h),
+                        only_overlap: comp.is_overlap_only()
                     };
                 }
                 ui.ctx()

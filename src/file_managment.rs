@@ -6,7 +6,7 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 
-use egui::mutex::Mutex;
+use egui::{mutex::Mutex, Theme};
 
 use crate::{grid_db::GridBD, locale::Locale};
 
@@ -14,6 +14,7 @@ use crate::{grid_db::GridBD, locale::Locale};
 enum FileManagerState {
     OpenFile,
     SaveFile,
+    ExportSVGDialog{export_theme: Theme},
     ExportSVG,
     None,
     Error(&'static str),
@@ -100,7 +101,7 @@ impl FileManager {
     pub fn update(&mut self, ctx: &egui::Context, locale: &'static Locale, bd: &mut GridBD, file_name: &mut String) {
         if self.state != FileManagerState::None {
             // Display state modal
-            egui::modal::Modal::new("FileManager".into()).show(ctx, |ui| match self.state {
+            egui::modal::Modal::new("FileManager".into()).show(ctx, |ui| match &mut self.state {
                 FileManagerState::SaveFile => {
                     ui.label(locale.saving_file);
                 }
@@ -109,7 +110,7 @@ impl FileManager {
                 }
                 FileManagerState::Error(err) => {
                     ui.horizontal(|ui| {
-                        ui.label(err);
+                        ui.label(*err);
                     });
                     if ui.button("OK").clicked() {
                         self.done.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -117,6 +118,17 @@ impl FileManager {
                 }
                 FileManagerState::ExportSVG => {
                     ui.label(locale.ongoing_export_to_svg);
+                }
+                FileManagerState::ExportSVGDialog {export_theme } => {
+                    ui.horizontal(|ui|  {
+                        ui.label(locale.theme);
+                        ui.radio_value(export_theme, Theme::Dark, locale.theme_dark);
+                        ui.radio_value(export_theme, Theme::Light, locale.theme_light);
+                    });
+                    if ui.button("OK").clicked() {
+                        let theme = export_theme.clone();
+                        self.export_to_svg(bd, file_name, theme);
+                    }
                 }
                 _ => {}
             });
@@ -246,13 +258,17 @@ impl FileManager {
         }
     }
 
-    pub fn export_to_svg(&mut self, bd: &GridBD, file_name: &String) {
+    pub fn start_export_svg(&mut self, default_theme: Theme) {
+        self.state = FileManagerState::ExportSVGDialog { export_theme: default_theme };
+    }
+
+    fn export_to_svg(&mut self, bd: &GridBD, file_name: &String, theme: Theme) {
         self.state = FileManagerState::ExportSVG;
         let default_file_name = format!("{file_name}.svg");
         #[cfg(not(target_arch = "wasm32"))]
         {
             let bd_arc = Arc::new(bd);
-            let data = bd_arc.dump_to_svg();
+            let data = bd_arc.dump_to_svg(theme);
             let arc = self.done.clone().clone();
             Self::execute(async move {
                 if let Some(file) = rfd::AsyncFileDialog::new()
@@ -267,7 +283,7 @@ impl FileManager {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            let data = bd.dump_to_svg();
+            let data = bd.dump_to_svg(theme);
             use eframe::wasm_bindgen::JsCast;
             use eframe::wasm_bindgen::prelude::Closure;
             use web_sys::{Blob, BlobPropertyBag, Url};

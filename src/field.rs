@@ -1,6 +1,5 @@
 use egui::{
-    Color32, CursorIcon, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind,
-    Ui, Vec2, pos2, vec2,
+    pos2, vec2, Color32, CursorIcon, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Theme, Ui, Vec2
 };
 use std::sync::Arc;
 
@@ -279,8 +278,8 @@ impl Field {
 
     fn handle_drag_resp(&mut self, painter: &Painter, fill_color: Color32) {
         match std::mem::take(&mut self.external_drag_resp) {
-            DragComponentResponse::Dragged { dim, pos } => {
-                draw_component_drag_preview(&self.grid_db, &self.state, dim, painter, pos, None, fill_color);
+            DragComponentResponse::Dragged { dim, pos, only_overlap} => {
+                draw_component_drag_preview(&self.grid_db, &self.state, dim, painter, pos, None, fill_color, only_overlap);
             }
             DragComponentResponse::Released { pos, mut component } => {
                 component.set_pos(self.state.screen_to_grid(pos));
@@ -288,7 +287,7 @@ impl Field {
                 let p0 = component.get_position();
                 for x in 0..dim.0 {
                     for y in 0..dim.1 {
-                        if !self.grid_db.is_free_cell(p0 + grid_pos(x, y)) {
+                        if !self.grid_db.is_free_cell(p0 + grid_pos(x, y), component.is_overlap_only()) {
                             return;
                         }
                     }
@@ -300,6 +299,7 @@ impl Field {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
+        let theme = ui.ctx().theme();
         let allocated_rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(self.state.rect, Sense::drag().union(Sense::all()));
         self.refresh(ui, &response, allocated_rect);
@@ -309,18 +309,22 @@ impl Field {
             self.state.screen_to_grid(self.state.rect.min),
             self.state.screen_to_grid(self.state.rect.max),
         );
+        let painter: Painter = ui.painter().with_clip_rect(self.state.rect);
+
+        // Display components:
         self.grid_db
             .get_visible_components(&grid_rect)
             .iter()
             .for_each(|u| {
-                u.display(&self.state, &ui.painter().with_clip_rect(self.state.rect));
+                u.display(&self.state, &painter, theme);
             });
-        let painter = ui.painter().with_clip_rect(self.state.rect);
+
+        // Display theme:
         let net_segments = self.grid_db.get_visible_net_segments(&grid_rect);
         painter.extend(
             net_segments
                 .iter()
-                .map(|segment| Shape::Mesh(Arc::new(segment.get_mesh(&self.grid_db, &self.state)))),
+                .map(|segment| Shape::Mesh(Arc::new(segment.get_mesh(&self.grid_db, &self.state, theme)))),
         );
 
         self.connection_builder
@@ -559,7 +563,8 @@ fn draw_component_drag_preview(
     painter: &Painter,
     pos: Pos2,
     component_id: Option<Id>,
-    fill_color: Color32
+    fill_color: Color32,
+    only_overlap: bool
 ) {
     let p0 = state.screen_to_grid(pos);
     let mut result = vec![];
@@ -569,7 +574,7 @@ fn draw_component_drag_preview(
             let available = if let Some(id) = component_id {
                 bd.is_available_cell(cell, id)
             } else {
-                bd.is_free_cell(cell)
+                bd.is_free_cell(cell, only_overlap)
             };
             if available {
                 result.push(filled_cells(
@@ -959,6 +964,7 @@ impl DragManager {
             }
             DragState::ComponentDragged { id, grab_ofs } => {
                 if let Some(pos) = state.cursor_pos {
+                    let comp = bd.get_component(&id).unwrap().is_overlap_only();
                     draw_component_drag_preview(
                         bd,
                         state,
@@ -966,7 +972,8 @@ impl DragManager {
                         painter,
                         pos - grab_ofs,
                         Some(id),
-                        ui.visuals().strong_text_color().gamma_multiply(0.08)
+                        ui.visuals().strong_text_color().gamma_multiply(0.08),
+                        comp
                     );
                 }
             }
