@@ -4,14 +4,16 @@ use std::{
 };
 
 use egui::{
-    epaint::{PathShape, PathStroke, TextShape}, pos2, text::Fonts, vec2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2
+    Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2,
+    epaint::{PathShape, PathStroke, TextShape},
+    pos2, vec2,
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use crate::{
     field::{Field, FieldState, SVG_DUMMY_STATE},
-    grid_db::{grid_rect, mesh_line, svg_line, GridBD, GridBDConnectionPoint, GridRect, Id, LodLevel},
+    grid_db::{GridBD, GridBDConnectionPoint, GridRect, Id, grid_rect, mesh_line, svg_line},
 };
 
 use super::PrimitiveComponent;
@@ -181,8 +183,10 @@ pub struct Unit {
 impl Unit {
     const ACTIONS: &'static [ComponentAction] = &[ComponentAction::Remove];
 
-    pub fn get_shapes(&self, state: &FieldState, fonts: &Fonts) -> Vec<Shape>{
-        let mut result = vec![];
+    pub fn display(&self, state: &FieldState, painter: &Painter) {
+        // TODO: Add LOD level
+        // 1. Display unit with ports and labels
+        // 2. Display display only Rectangle
         let rect = Rect::from_min_size(
             state.grid_to_screen(&self.pos),
             vec2(
@@ -190,20 +194,19 @@ impl Unit {
                 state.grid_size * self.height as f32,
             ),
         );
-        result.push(Shape::rect_filled(rect, 0.5 * state.scale, Color32::GRAY));
+        painter.rect_filled(rect, 0.5 * state.scale, Color32::GRAY);
 
-        if state.lod_level() != LodLevel::Min {
-            result.push(Shape::rect_stroke(
+        if state.scale > Field::LOD_LEVEL_MIN_SCALE {
+            painter.rect_stroke(
                 rect,
                 0.5 * state.scale,
                 Stroke::new(1.0 * state.scale, Color32::DARK_GRAY),
                 StrokeKind::Outside,
-            ));
+            );
             for port in &self.ports {
-                result.extend(port.get_shapes(&self.pos, state, fonts));
+                port.display(&self.pos, state, &painter);
             }
         }
-        result
     }
 }
 
@@ -230,10 +233,10 @@ impl Component {
         )
     }
 
-    pub fn get_shapes(&self, state: &FieldState, fonts: &Fonts) -> Vec<Shape> {
+    pub fn display(&self, state: &FieldState, painter: &Painter) {
         match self {
-            Component::Unit(u) => u.get_shapes(state, fonts),
-            Component::Primitive(g) => g.get_shapes(state),
+            Component::Unit(u) => u.display(state, painter),
+            Component::Primitive(g) => g.display(state, painter),
         }
     }
 
@@ -277,7 +280,7 @@ impl Component {
             label_visible: true,
             cursor_pos: None,
         };
-        painter.extend(painter.fonts(|fonts|{ self.get_shapes(&state, fonts) }));
+        self.display(&state, painter);
     }
 
     pub fn get_dimension(&self) -> (i32, i32) {
@@ -390,45 +393,30 @@ impl Port {
             }
     }
 
-    pub fn get_shapes(
-        &self,
-        unit_pos: &GridPos,
-        state: &FieldState,
-        fonts: &Fonts,  // Добавлен параметр для работы со шрифтами
-    ) -> Vec<Shape> {
+    pub fn display(&self, unit_pos: &GridPos, state: &FieldState, painter: &Painter) {
         let angle = self.align.rotation_angle();
         let pos = self.center(unit_pos, state);
-        let mut shapes = Vec::new();
-
-        // 1. Залитый круг (заменяет painter.circle_filled)
-        shapes.push(Shape::circle_filled(
+        painter.circle_filled(pos, state.grid_size * Self::PORT_SCALE, Color32::GRAY);
+        painter.circle_stroke(
             pos,
             state.grid_size * Self::PORT_SCALE,
-            Color32::GRAY,
-        ));
-
-        // 2. Контур круга (заменяет painter.circle_stroke)
-        shapes.push(Shape::circle_stroke(pos, state.grid_size * Self::PORT_SCALE, Stroke::new(1.0 * state.scale, Color32::DARK_GRAY)));
-
-        // 3. Текстовые метки
+            Stroke::new(1.0 * state.scale, Color32::DARK_GRAY),
+        );
         if state.label_visible {
-            // Создаем galley с использованием переданных шрифтов
-            let galley = fonts.layout_no_wrap(
-                self.name.clone(),
-                state.label_font.clone(),
-                Color32::WHITE
-            );
+            let galley = painter.fonts(|fonts| {
+                fonts.layout_no_wrap(self.name.clone(), state.label_font.clone(), Color32::WHITE)
+            });
             let label_rect = galley.rect;
+
             let mut text_pos = state.grid_to_screen(&GridPos {
                 x: unit_pos.x + self.cell.x,
                 y: unit_pos.y + self.cell.y,
             });
-
-            // Вычисление позиции текста
             match self.align {
                 ConnectionAlign::LEFT => {
                     text_pos.y += state.grid_size / 2.0 - label_rect.height() / 2.0;
                     text_pos.x += state.grid_size * 0.5;
+                    // TODO:
                 }
                 ConnectionAlign::RIGHT => {
                     text_pos.y += state.grid_size / 2.0 - label_rect.height() / 2.0;
@@ -440,14 +428,8 @@ impl Port {
                 }
                 ConnectionAlign::BOTTOM => {}
             }
-
-            // Создаем текстовую фигуру
-            let text_shape = TextShape::new(text_pos, galley, Color32::WHITE)
-                .with_angle(angle);
-            shapes.push(Shape::Text(text_shape));
+            painter.add(TextShape::new(text_pos, galley, Color32::WHITE).with_angle(angle));
         }
-
-        shapes
     }
 
     pub fn is_hovered(&self, state: &FieldState, unit_pos: &GridPos) -> bool {

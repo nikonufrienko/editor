@@ -211,59 +211,50 @@ impl PrimitiveComponent {
         ))
     }
 
-    pub fn get_shapes(&self, state: &FieldState) -> Vec<Shape> {
+    pub fn display(&self, state: &FieldState, painter: &Painter) {
         let stroke_w = 1.0 * state.scale;
+        let _fill_color = Color32::GRAY;
         let stroke_color = Color32::DARK_GRAY;
-        let stroke = Stroke::new(stroke_w, stroke_color);
+        let stroke = Stroke {
+            color: stroke_color,
+            width: stroke_w,
+        };
         let lod_level = state.lod_level();
         let screen_pos = state.grid_to_screen(&self.pos).to_vec2();
-
-        let lines = if state.scale > Field::LOD_LEVEL_MIN_SCALE {
-            self.typ.get_lines(lod_level)
-        } else {
-            vec![]
-        };
-        let meshes = get_cached_meshes(self.typ, self.rotation, lod_level);
-
-        let mut result = Vec::with_capacity(
-            meshes.len() +
-            lines.len() +
-            self.typ.get_connections_number()
-        );
-
         // Draw lines:
         if state.scale > Field::LOD_LEVEL_MIN_SCALE {
-            for mut line in self.typ.get_lines(lod_level) {
+            for line in self.typ.get_lines(lod_level) {
+                let mut line = line;
                 for p in &mut line {
                     *p = *p * state.grid_size + screen_pos;
                 }
                 self.apply_rotation_for_points(&mut line, state);
-                result.push(Shape::line(line, stroke));
+                painter.line(line, stroke);
             }
         }
-
-        // Draw meshes:
-        for mesh in meshes {
+        for mesh in get_cached_meshes(self.typ, self.rotation, lod_level) {
             let mut shape = Shape::Mesh(mesh);
             shape.transform(TSTransform {
                 scaling: state.grid_size,
                 translation: screen_pos,
             });
-            result.push(shape);
+            painter.add(shape);
         }
 
         // Draw connections:
         if state.scale > Field::LOD_LEVEL_MIN_SCALE {
             let radius = state.grid_size * Self::CONNECTION_SCALE;
-            for i in 0..self.typ.get_connections_number() {
-                let pos = self.apply_rotation(
-                    self.typ.get_connection_position_raw(i) * state.grid_size + screen_pos,
-                    state,
+            (0..self.typ.get_connections_number()).for_each(|i| {
+                painter.circle_filled(
+                    self.apply_rotation(
+                        self.typ.get_connection_position_raw(i) * state.grid_size + screen_pos,
+                        state,
+                    ),
+                    radius,
+                    stroke_color,
                 );
-                result.push(Shape::circle_filled(pos, radius, stroke_color));
-            }
+            });
         }
-        result
     }
 
     pub fn get_svg(&self, offset: GridPos) -> String {
