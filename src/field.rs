@@ -2,7 +2,7 @@ use egui::{
     Color32, CursorIcon, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind,
     Ui, Vec2, pos2, vec2,
 };
-use std::sync::Arc;
+use std::{sync::Arc};
 
 use crate::{
     grid_db::{
@@ -309,13 +309,19 @@ impl Field {
             self.state.screen_to_grid(self.state.rect.min),
             self.state.screen_to_grid(self.state.rect.max),
         );
-        self.grid_db
-            .get_visible_components(&grid_rect)
-            .iter()
-            .for_each(|u| {
-                u.display(&self.state, &ui.painter().with_clip_rect(self.state.rect));
-            });
+        let shapes = ui.fonts(|fonts|{
+            let mut shapes = vec![];
+            self.grid_db
+                .get_visible_components(&grid_rect)
+                .iter()
+                .for_each(|comp| {
+                    shapes.extend(comp.get_shapes(&self.state, fonts));
+                });
+            shapes
+        });
         let painter = ui.painter().with_clip_rect(self.state.rect);
+        painter.extend(shapes);
+
         let net_segments = self.grid_db.get_visible_net_segments(&grid_rect);
         painter.extend(
             net_segments

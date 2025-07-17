@@ -1,4 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+use std::{fmt::format, time::Instant};
+
 use eframe::egui;
 use egui::{vec2, CursorIcon, Id, KeyboardShortcut, LayerId, Modifiers, Rect, Sense, Stroke, Theme, Visuals};
 
@@ -90,7 +92,8 @@ struct EditorApp {
     file_manager: FileManager,
     helpers: Helpers,
     file_name: String,
-    theme : Theme
+    theme : Theme,
+    last_frame_time: Option<Instant>,
 }
 
 impl EditorApp {
@@ -102,7 +105,8 @@ impl EditorApp {
             file_manager: FileManager::new(),
             helpers: Helpers::new(),
             file_name: String::new(),
-            theme: Theme::Dark
+            theme: Theme::Dark,
+            last_frame_time: None,
         }
     }
 }
@@ -218,6 +222,16 @@ impl eframe::App for EditorApp {
         });
         self.helpers.show(ctx, self.locale);
 
+        egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
+            let now = Instant::now();
+            if let Some(last_time) = self.last_frame_time {
+                let delta = now - last_time;
+                let fps = 1.0 / delta.as_secs_f64();
+                ui.label(format!("fps:{:}", fps.ceil() as i32));
+            }
+            self.last_frame_time = Some(now);
+            ctx.request_repaint();
+        });
         // Check Ctrl+S:
         if ctx.input_mut(|state| {
             state.consume_shortcut(&KeyboardShortcut::new(Modifiers::CTRL, egui::Key::S))
