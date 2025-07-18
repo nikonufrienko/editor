@@ -1,5 +1,5 @@
 use egui::epaint::Vertex;
-use egui::{pos2, Color32, Mesh, Pos2, Theme, Vec2};
+use egui::{Color32, Mesh, Painter, Pos2, Rect, Stroke, Theme, Vec2, pos2};
 use lyon::geom::point;
 use lyon::{
     path::{LineCap, LineJoin, Path},
@@ -10,6 +10,8 @@ use lyon::{
 };
 
 use std::cell::RefCell;
+
+use crate::field::FieldState;
 
 pub fn tesselate_polygon(
     points: &Vec<Pos2>,
@@ -214,14 +216,16 @@ pub fn svg_circle(
     )
 }
 
-
+#[allow(unused)]
 pub trait ComponentColor {
     fn get_fill_color(&self) -> Color32;
     fn get_stroke_color(&self) -> Color32;
     fn get_text_color(&self) -> Color32;
     fn get_bg_color(&self) -> Color32;
-
+    fn get_stroke(&self, state: &FieldState) -> Stroke;
 }
+
+pub const STROKE_SCALE: f32 = 0.1;
 
 impl ComponentColor for Theme {
     fn get_fill_color(&self) -> Color32 {
@@ -244,11 +248,94 @@ impl ComponentColor for Theme {
         }
     }
 
-    /// Used for SVG:
+    /// Used for SVG
     fn get_bg_color(&self) -> Color32 {
         match self {
             Self::Light => Color32::WHITE,
             Self::Dark => Color32::from_rgb(30, 30, 30),
         }
     }
+
+    fn get_stroke(&self, state: &FieldState) -> Stroke {
+        return Stroke::new(state.grid_size * STROKE_SCALE, self.get_stroke_color());
+    }
+}
+
+#[allow(unused)]
+pub fn draw_dashed_line(
+    painter: &Painter,
+    start: Pos2,
+    end: Pos2,
+    color: Color32,
+    stroke_width: f32,
+    dash_length: f32,
+    gap_length: f32,
+) {
+    let dir = end - start;
+    let total_length = dir.length();
+    let dir_normalized = dir.normalized();
+
+    let mut current_pos = 0.0;
+    while current_pos < total_length {
+        let segment_start = start + dir_normalized * current_pos;
+        let segment_end = start + dir_normalized * (current_pos + dash_length).min(total_length);
+
+        painter.line_segment(
+            [segment_start, segment_end],
+            Stroke::new(stroke_width, color),
+        );
+
+        current_pos += dash_length + gap_length;
+    }
+}
+
+#[allow(unused)]
+pub fn draw_dashed_rect(
+    painter: &Painter,
+    rect: Rect,
+    color: Color32,
+    stroke_width: f32,
+    dash_length: f32,
+    gap_length: f32,
+) {
+    let top_left = rect.min;
+    let top_right = Pos2::new(rect.max.x, rect.min.y);
+    let bottom_right = rect.max;
+    let bottom_left = Pos2::new(rect.min.x, rect.max.y);
+    draw_dashed_line(
+        painter,
+        top_left,
+        top_right,
+        color,
+        stroke_width,
+        dash_length,
+        gap_length,
+    );
+    draw_dashed_line(
+        painter,
+        top_right,
+        bottom_right,
+        color,
+        stroke_width,
+        dash_length,
+        gap_length,
+    );
+    draw_dashed_line(
+        painter,
+        bottom_right,
+        bottom_left,
+        color,
+        stroke_width,
+        dash_length,
+        gap_length,
+    );
+    draw_dashed_line(
+        painter,
+        bottom_left,
+        top_left,
+        color,
+        stroke_width,
+        dash_length,
+        gap_length,
+    );
 }

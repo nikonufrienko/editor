@@ -1,6 +1,7 @@
 use crate::{
     grid_db::{
-        Component, ConnectionAlign, Port, PrimitiveComponent, PrimitiveType, Unit, grid_pos,
+        Component, ConnectionAlign, Port, PrimitiveComponent, PrimitiveType, TextField, Unit,
+        grid_pos,
     },
     locale::Locale,
 };
@@ -163,8 +164,25 @@ fn get_units_examples() -> Vec<ComponentLibEntry> {
     }]
 }
 
+fn get_text_labels() -> Vec<ComponentLibEntry> {
+    vec![ComponentLibEntry {
+        name: "Text field",
+        component: Component::TextField(TextField {
+            pos: grid_pos(1, 1), // Default preview pos
+            size: (4, 4),
+            text: "Some text".into(),
+        }),
+    }]
+}
+
 pub fn get_component_lib() -> Vec<Vec<ComponentLibEntry>> {
-    vec![get_gates(), get_muxes(), get_io(), get_units_examples()]
+    vec![
+        get_gates(),
+        get_muxes(),
+        get_io(),
+        get_units_examples(),
+        get_text_labels(),
+    ]
 }
 
 pub fn get_component_lib_with_query(query: &String) -> Vec<Vec<ComponentLibEntry>> {
@@ -195,6 +213,7 @@ pub fn get_group_name(group_id: usize, locale: &Locale) -> &'static str {
         1 => locale.muxes,
         2 => locale.input_outputs,
         3 => locale.custom_units,
+        4 => locale.text_labels,
         _ => "",
     }
 }

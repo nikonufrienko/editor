@@ -4,14 +4,19 @@ use std::{
 };
 
 use egui::{
-    epaint::{PathShape, PathStroke, TextShape}, pos2, vec2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Theme, Vec2
+    Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Theme, Vec2,
+    epaint::{PathShape, PathStroke, TextShape},
+    pos2, vec2,
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use crate::{
     field::{Field, FieldState, SVG_DUMMY_STATE},
-    grid_db::{grid_rect, mesh_line, svg_line, ComponentColor, GridBD, GridBDConnectionPoint, GridRect, Id, PrimitiveType},
+    grid_db::{
+        ComponentColor, GridBD, GridBDConnectionPoint, GridRect, Id, PrimitiveType, TextField,
+        grid_rect, mesh_line, svg_line,
+    },
 };
 
 use super::PrimitiveComponent;
@@ -211,6 +216,7 @@ impl Unit {
 pub enum Component {
     Unit(Unit),
     Primitive(PrimitiveComponent),
+    TextField(TextField),
 }
 
 impl Component {
@@ -218,6 +224,7 @@ impl Component {
         match self {
             Component::Unit(u) => u.pos,
             Component::Primitive(g) => g.pos,
+            Component::TextField(f) => f.pos,
         }
     }
 
@@ -234,6 +241,7 @@ impl Component {
         match self {
             Component::Unit(u) => u.display(state, painter, theme),
             Component::Primitive(g) => g.display(state, painter, theme),
+            Component::TextField(f) => f.display(state, painter),
         }
     }
 
@@ -248,6 +256,7 @@ impl Component {
             Component::Primitive(g) => (0..g.typ.get_connections_number())
                 .map(|i| g.get_connection_dock_cell(i).unwrap())
                 .collect(),
+            _ => vec![],
         }
     }
 
@@ -255,6 +264,7 @@ impl Component {
         match self {
             Component::Unit(unit) => unit.pos = pos,
             Component::Primitive(g) => g.pos = pos,
+            Component::TextField(f) => f.pos = pos,
         }
     }
 
@@ -276,6 +286,8 @@ impl Component {
             ),
             label_visible: true,
             cursor_pos: None,
+            debounce_scale: 1.0,
+            debounce: false,
         };
         self.display(&state, painter, theme);
     }
@@ -284,6 +296,7 @@ impl Component {
         match self {
             Component::Unit(u) => (u.width, u.height),
             Component::Primitive(g) => g.get_dimension(),
+            Component::TextField(f) => f.size,
         }
     }
 
@@ -315,6 +328,7 @@ impl Component {
         match self {
             Self::Primitive(_g) => PrimitiveComponent::ACTIONS,
             Self::Unit(_u) => Unit::ACTIONS,
+            Self::TextField(_f) => TextField::ACTIONS,
         }
     }
 
@@ -327,7 +341,8 @@ impl Component {
             }
             Component::Primitive(g) => {
                 g.highlight_connection(connection_id, state, painter);
-            } // TODO
+            }
+            _ => {}
         }
     }
 
@@ -338,6 +353,7 @@ impl Component {
                 Some(p.center(&unit.pos, state))
             }
             Component::Primitive(g) => g.get_connection_position(connection_id, state),
+            _ => None,
         }
     }
 
@@ -348,6 +364,7 @@ impl Component {
                 Some(p.get_dock_cell(&unit.pos))
             }
             Component::Primitive(g) => g.get_connection_dock_cell(connection_id),
+            _ => None,
         }
     }
 
@@ -358,6 +375,7 @@ impl Component {
                 .get(connection_id)
                 .is_some_and(|p| p.is_hovered(state, &unit.pos)),
             Component::Primitive(g) => g.is_connection_hovered(connection_id, state),
+            _ => false,
         }
     }
 
@@ -373,9 +391,65 @@ impl Component {
         match self {
             Component::Primitive(g) => match g.typ {
                 PrimitiveType::Point => true,
-                _ => false
+                _ => false,
             },
-            _ => false
+            Component::TextField(_f) => true,
+            _ => false,
+        }
+    }
+
+    /// Returns true, if component supports resizing
+    pub fn is_resizable(&self) -> bool {
+        match self {
+            Component::TextField(_f) => true,
+            _ => false,
+        }
+    }
+
+    /// Sets new size for component, if component supports resizing
+    pub fn set_size(&mut self, size: (i32, i32)) {
+        match self {
+            Component::TextField(f) => f.size = size,
+            _ => {}
+        }
+    }
+
+    /// Returns id of hovered text edit field
+    pub fn get_hovered_text_edit_id(&self) -> Option<Id> {
+        match self {
+            Component::TextField(_f) => Some(0),
+            _ => None,
+        }
+    }
+
+    /// Returns mutable reference to the text in a text edit field
+    pub fn get_text_edit_mut(&mut self, id: Id) -> Option<&mut String> {
+        match self {
+            Component::TextField(f) => {
+                if id == 0 {
+                    Some(&mut f.text)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+    /// Returns mutable reference to the text in a text edit field
+    pub fn get_text_edit_rect(&self, id: Id, state: &FieldState) -> Option<Rect> {
+        match self {
+            Component::TextField(f) => {
+                if id == 0 {
+                    let (w, h) = f.size;
+                    Some(Rect::from_min_size(
+                        state.grid_to_screen(&f.pos),
+                        state.grid_size * vec2(w as f32, h as f32),
+                    ))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
     }
 }

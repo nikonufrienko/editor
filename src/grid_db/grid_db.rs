@@ -3,13 +3,13 @@ use std::{
     i32, usize,
 };
 
-use egui::{Color32, Theme};
+use egui::{Theme};
 use rstar::{AABB, PointDistance, RTree, RTreeObject};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     field::FieldState,
-    grid_db::{grid_pos, Component, ComponentColor, GridPos, Net, NetSegment},
+    grid_db::{Component, ComponentColor, GridPos, Net, NetSegment, grid_pos},
 }; // AABB = Axis-Aligned Bounding Box (прямоугольник)
 type Point = [i32; 2]; // Точка (x, y)
 
@@ -22,7 +22,7 @@ pub struct GridRect {
 }
 
 impl GridRect {
-    fn contains(&self, pos:GridPos) -> bool {
+    fn contains(&self, pos: GridPos) -> bool {
         pos.x >= self.min.x && pos.y >= self.min.y && pos.x <= self.max.x && pos.y <= self.max.y
     }
 }
@@ -197,6 +197,10 @@ impl GridBD {
         return self.components.get(&id);
     }
 
+    pub fn get_component_mut(&mut self, id: &Id) -> Option<&mut Component> {
+        return self.components.get_mut(&id);
+    }
+
     pub fn find_net_path(&self, pos1: GridPos, pos2: GridPos) -> Vec<GridPos> {
         return vec![
             grid_pos((pos1.x + pos2.x) / 2, pos1.y),
@@ -281,7 +285,10 @@ impl GridBD {
     pub fn is_available_cell(&self, cell: GridPos, component_id: Id) -> bool {
         for nearest in self.tree.locate_within_distance(cell.to_point(), 2) {
             if nearest.id != component_id {
-                if self.get_component(&component_id).unwrap().is_overlap_only() || self.get_component(&nearest.id).unwrap().is_overlap_only() { // Check only overlap
+                if self.get_component(&component_id).unwrap().is_overlap_only()
+                    || self.get_component(&nearest.id).unwrap().is_overlap_only()
+                {
+                    // Check only overlap
                     if nearest.contains(cell) {
                         return false;
                     }

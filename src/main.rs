@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use eframe::egui;
-use egui::{vec2, CursorIcon, Id, KeyboardShortcut, LayerId, Modifiers, Rect, Sense, Stroke, Theme, Visuals};
+use egui::{
+    CursorIcon, Id, KeyboardShortcut, LayerId, Modifiers, Rect, Sense, Stroke, Theme, vec2,
+};
 
 use crate::{
     field::{Field, GridType},
@@ -15,6 +17,7 @@ mod field;
 mod file_managment;
 mod grid_db;
 mod helpers;
+mod interaction_manager;
 mod locale;
 mod preview;
 
@@ -90,7 +93,7 @@ struct EditorApp {
     file_manager: FileManager,
     helpers: Helpers,
     file_name: String,
-    theme : Theme
+    theme: Theme,
 }
 
 impl EditorApp {
@@ -102,7 +105,7 @@ impl EditorApp {
             file_manager: FileManager::new(),
             helpers: Helpers::new(),
             file_name: "Untitled".into(),
-            theme: Theme::Dark
+            theme: Theme::Dark,
         }
     }
 }
@@ -124,7 +127,8 @@ impl eframe::App for EditorApp {
                             ui.close();
                         }
                         if ui.button(locale.save).clicked() {
-                            self.file_manager.save_file(&self.field.grid_db, &self.file_name);
+                            self.file_manager
+                                .save_file(&self.field.grid_db, &self.file_name);
                             ui.close();
                         }
                         if ui.button(locale.export_to_svg).clicked() {
@@ -196,7 +200,8 @@ impl eframe::App for EditorApp {
         if ctx.input_mut(|state| {
             state.consume_shortcut(&KeyboardShortcut::new(Modifiers::CTRL, egui::Key::S))
         }) {
-            self.file_manager.save_file(&self.field.grid_db, &self.file_name);
+            self.file_manager
+                .save_file(&self.field.grid_db, &self.file_name);
         }
     }
 }

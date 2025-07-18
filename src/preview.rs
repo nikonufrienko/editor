@@ -17,8 +17,15 @@ pub struct PreviewPanel {
 }
 
 pub enum DragComponentResponse {
-    Dragged { pos: Pos2, dim: (i32, i32), only_overlap: bool },
-    Released { pos: Pos2, component: Component },
+    Dragged {
+        pos: Pos2,
+        dim: (i32, i32),
+        only_overlap: bool,
+    },
+    Released {
+        pos: Pos2,
+        component: Component,
+    },
     None,
 }
 
@@ -72,7 +79,7 @@ impl PreviewPanel {
                     drag_response = DragComponentResponse::Dragged {
                         pos: rect2.min + ofs_vec,
                         dim: (w, h),
-                        only_overlap: comp.is_overlap_only()
+                        only_overlap: comp.is_overlap_only(),
                     };
                 }
                 ui.ctx()

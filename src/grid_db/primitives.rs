@@ -15,15 +15,13 @@ use egui::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::grid_db::ComponentColor;
+use crate::grid_db::{ComponentColor, STROKE_SCALE};
 use crate::{
     field::{Field, FieldState, SVG_DUMMY_STATE},
     grid_db::{svg_circle_filled, svg_line, svg_polygon, tesselate_polygon},
 };
 
 use super::{ComponentAction, GridPos, Id, grid_pos};
-
-const STROKE_SCALE: f32 = 0.1;
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub enum LodLevel {
@@ -370,7 +368,14 @@ impl PrimitiveType {
         }
     }
 
-    fn get_and_gate_shape_points(stroke_w: f32, radius_x: f32, radius_y: f32, center : Pos2, height: f32, lod_level: LodLevel) -> Vec<Pos2> {
+    fn get_and_gate_shape_points(
+        stroke_w: f32,
+        radius_x: f32,
+        radius_y: f32,
+        center: Pos2,
+        height: f32,
+        lod_level: LodLevel,
+    ) -> Vec<Pos2> {
         let n_points = match lod_level {
             LodLevel::Max => 30,
             LodLevel::Mid => 8,
@@ -699,14 +704,14 @@ impl PrimitiveType {
         n_inputs: usize,
         primitive_pos: &GridPos,
     ) -> GridPos {
-       Self::get_and_gate_dock_cell_raw(connection_id, n_inputs, primitive_pos)
+        Self::get_and_gate_dock_cell_raw(connection_id, n_inputs, primitive_pos)
     }
 
     fn get_nand_gate_connection_position_raw(connection_id: Id, n_inputs: usize) -> Pos2 {
-       Self::get_and_gate_connection_position_raw(connection_id, n_inputs)
+        Self::get_and_gate_connection_position_raw(connection_id, n_inputs)
     }
 
-    fn get_circle_points(center : Pos2, radius:f32, lod_level: LodLevel) -> Vec<Pos2> {
+    fn get_circle_points(center: Pos2, radius: f32, lod_level: LodLevel) -> Vec<Pos2> {
         let n_circle_points = match lod_level {
             LodLevel::Max => 40,
             LodLevel::Mid => 6,
@@ -732,7 +737,12 @@ impl PrimitiveType {
         let radius_x = 1.0 - stroke_w / 2.0;
         let radius_y = height as f32 / 2.0 - stroke_w / 2.0;
         let center = pos2(1.5, height / 2.0);
-        vec![Self::get_and_gate_shape_points(stroke_w, radius_x, radius_y, center, height, lod_level), Self::get_circle_points(center + vec2(radius_x, 0.0), 0.25, lod_level)]
+        vec![
+            Self::get_and_gate_shape_points(
+                stroke_w, radius_x, radius_y, center, height, lod_level,
+            ),
+            Self::get_circle_points(center + vec2(radius_x, 0.0), 0.25, lod_level),
+        ]
     }
 
     fn get_nand_gate_lines_raw(n_inputs: usize) -> Vec<Vec<Pos2>> {
@@ -885,7 +895,10 @@ impl PrimitiveType {
             grid_size * 0.5 + stroke_w * 0.5,
             2.5 * grid_size - stroke_w * 0.5,
         );
-        return vec![vec![p0, p1, p2], Self::get_circle_points(p1, grid_size * 0.25, lod_level)];
+        return vec![
+            vec![p0, p1, p2],
+            Self::get_circle_points(p1, grid_size * 0.25, lod_level),
+        ];
     }
 
     fn get_not_connection_position_raw(connection_id: Id) -> Pos2 {
@@ -992,9 +1005,7 @@ impl PrimitiveType {
             Self::Xor(n_inputs) => {
                 vec![Self::get_xor_gate_polygon_points_raw(*n_inputs, lod_level)]
             }
-            Self::Nand(n_inputs) => {
-                Self::get_nand_gate_polygons_points_raw(*n_inputs, lod_level)
-            }
+            Self::Nand(n_inputs) => Self::get_nand_gate_polygons_points_raw(*n_inputs, lod_level),
             Self::Mux(n_inputs) => vec![Self::get_mux_polygon_points_raw(*n_inputs)],
             Self::Input => vec![Self::get_input_polygon_points_raw()],
             Self::Output => vec![Self::get_output_polygon_points_raw()],

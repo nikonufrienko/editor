@@ -6,7 +6,7 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 
-use egui::{mutex::Mutex, Theme};
+use egui::{Theme, mutex::Mutex};
 
 use crate::{grid_db::GridBD, locale::Locale};
 
@@ -14,7 +14,7 @@ use crate::{grid_db::GridBD, locale::Locale};
 enum FileManagerState {
     OpenFile,
     SaveFile,
-    ExportSVGDialog{export_theme: Theme},
+    ExportSVGDialog { export_theme: Theme },
     ExportSVG,
     None,
     Error(&'static str),
@@ -70,23 +70,23 @@ impl FileManager {
                                         let mut bytes = vec![];
                                         if let Ok(_size) = file.read_to_end(&mut bytes) {
                                             *receiver = Self::load_data(bytes, locale, file_name);
-                                            status.store(true, std::sync::atomic::Ordering::Relaxed);
+                                            status
+                                                .store(true, std::sync::atomic::Ordering::Relaxed);
                                         } else {
                                             *receiver = Err(locale.file_load_error);
-                                            status.store(true, std::sync::atomic::Ordering::Relaxed);
+                                            status
+                                                .store(true, std::sync::atomic::Ordering::Relaxed);
                                         }
                                     } else {
                                         *receiver = Err(locale.file_load_error);
                                         status.store(true, std::sync::atomic::Ordering::Relaxed);
                                     }
-
                                 });
 
                                 return true;
                             }
                         }
                     }
-
                 }
                 true
             } else {
@@ -98,7 +98,13 @@ impl FileManager {
         }
     }
 
-    pub fn update(&mut self, ctx: &egui::Context, locale: &'static Locale, bd: &mut GridBD, file_name: &mut String) {
+    pub fn update(
+        &mut self,
+        ctx: &egui::Context,
+        locale: &'static Locale,
+        bd: &mut GridBD,
+        file_name: &mut String,
+    ) {
         if self.state != FileManagerState::None {
             // Display state modal
             egui::modal::Modal::new("FileManager".into()).show(ctx, |ui| match &mut self.state {
@@ -119,8 +125,8 @@ impl FileManager {
                 FileManagerState::ExportSVG => {
                     ui.label(locale.ongoing_export_to_svg);
                 }
-                FileManagerState::ExportSVGDialog {export_theme } => {
-                    ui.horizontal(|ui|  {
+                FileManagerState::ExportSVGDialog { export_theme } => {
+                    ui.horizontal(|ui| {
                         ui.label(locale.theme);
                         ui.radio_value(export_theme, Theme::Dark, locale.theme_dark);
                         ui.radio_value(export_theme, Theme::Light, locale.theme_light);
@@ -161,10 +167,17 @@ impl FileManager {
         }
     }
 
-    fn load_data(data: Vec<u8>, locale: &'static Locale, file_name: String) -> Result<(GridBD, String) , &'static str> {
+    fn load_data(
+        data: Vec<u8>,
+        locale: &'static Locale,
+        file_name: String,
+    ) -> Result<(GridBD, String), &'static str> {
         if let Ok(json) = String::from_utf8(data) {
             if let Ok(new_bd) = GridBD::load_from_json(json) {
-                let striped_name = file_name.strip_suffix(".json").unwrap_or(&file_name).to_string();
+                let striped_name = file_name
+                    .strip_suffix(".json")
+                    .unwrap_or(&file_name)
+                    .to_string();
                 return Ok((new_bd, striped_name));
             } else {
                 Err(locale.file_wrong_format)
@@ -259,7 +272,9 @@ impl FileManager {
     }
 
     pub fn start_export_svg(&mut self, default_theme: Theme) {
-        self.state = FileManagerState::ExportSVGDialog { export_theme: default_theme };
+        self.state = FileManagerState::ExportSVGDialog {
+            export_theme: default_theme,
+        };
     }
 
     fn export_to_svg(&mut self, bd: &GridBD, file_name: &String, theme: Theme) {
