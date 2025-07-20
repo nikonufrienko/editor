@@ -257,7 +257,7 @@ impl PrimitiveComponent {
         }
     }
 
-    pub fn get_svg(&self, offset: GridPos, theme: Theme) -> String {
+    pub fn get_svg(&self, offset: GridPos, scale: f32, theme: Theme) -> String {
         // FIXME:
         let fill_color = theme.get_fill_color();
         let stroke_color = theme.get_stroke_color();
@@ -265,6 +265,7 @@ impl PrimitiveComponent {
         let raw_offset = vec2(pos.x as f32, pos.y as f32);
         let offset_vec2 = vec2(offset.x as f32, offset.y as f32);
         let pos_vec2 = vec2(self.pos.x as f32, self.pos.y as f32);
+        let stroke_w = STROKE_SCALE * scale;
 
         // Lines
         let mut result = String::new();
@@ -273,20 +274,21 @@ impl PrimitiveComponent {
             let mut raw_line = raw_line;
             self.apply_rotation_for_points(&mut raw_line, &SVG_DUMMY_STATE);
             for p in &mut raw_line {
-                *p = *p + raw_offset;
+                *p = (*p + raw_offset) * scale;
             }
-            result.push_str(&(svg_line(&raw_line, stroke_color, 0.1) + &"\n"));
+            result.push_str(&(svg_line(&raw_line, stroke_color, stroke_w) + &"\n"));
         }
 
         // Ports:
-        let radius = Self::CONNECTION_SCALE;
+        let radius = Self::CONNECTION_SCALE * scale;
         (0..self.typ.get_connections_number()).for_each(|i| {
             result.push_str(
                 &(svg_circle_filled(
-                    self.apply_rotation(
+                    (self.apply_rotation(
                         self.typ.get_connection_position_raw(i) + pos_vec2,
                         &SVG_DUMMY_STATE,
-                    ) + offset_vec2,
+                    ) + offset_vec2)
+                        * scale,
                     radius,
                     stroke_color,
                 ) + &"\n"),
@@ -298,10 +300,9 @@ impl PrimitiveComponent {
         for points in &mut polygons_points {
             apply_rotation_for_raw_points(points, self.rotation, self.typ.get_dimension_raw());
             for p in &mut *points {
-                *p = *p + raw_offset;
+                *p = (*p + raw_offset) * scale;
             }
-            result
-                .push_str(&(svg_polygon(&points, fill_color, stroke_color, STROKE_SCALE) + &"\n"));
+            result.push_str(&(svg_polygon(&points, fill_color, stroke_color, stroke_w) + &"\n"));
         }
 
         result

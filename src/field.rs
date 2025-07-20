@@ -5,10 +5,7 @@ use egui::{
 use std::sync::Arc;
 
 use crate::{
-    grid_db::{
-        GridBD, GridPos, LodLevel,
-        grid_pos, grid_rect,
-    },
+    grid_db::{GridBD, GridPos, LodLevel, grid_pos, grid_rect},
     interaction_manager::{ConnectionBuilder, InteractionManager, draw_component_drag_preview},
     preview::DragComponentResponse,
 };
@@ -270,7 +267,8 @@ impl Field {
                 }
                 self.state.debounce = true;
                 self.debounce_inst = Instant::now();
-            } else if self.state.debounce && self.debounce_inst.elapsed() > Self::DEBOUNCE_DURATION {
+            } else if self.state.debounce && self.debounce_inst.elapsed() > Self::DEBOUNCE_DURATION
+            {
                 self.state.debounce = false;
             }
 

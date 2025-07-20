@@ -1,11 +1,12 @@
 use crate::{
-    field::{blocked_cell, filled_cells, FieldState},
+    field::{FieldState, blocked_cell, filled_cells},
     grid_db::{
-        grid_pos, Component, ComponentAction, ComponentColor, GridBD, GridBDConnectionPoint, GridPos, Id, Net, RotationDirection
+        Component, ComponentAction, GridBD, GridBDConnectionPoint, GridPos, Id, Net,
+        RotationDirection, grid_pos, show_text_edit,
     },
 };
 use egui::{
-    vec2, Color32, CursorIcon, Painter, Pos2, Rect, Response, Stroke, StrokeKind, TextEdit, Ui, UiBuilder, Vec2
+    Color32, CursorIcon, Painter, Pos2, Rect, Response, Stroke, StrokeKind, Ui, Vec2, vec2,
 };
 
 #[derive(PartialEq)]
@@ -535,15 +536,12 @@ impl InteractionManager {
             InteractionState::EditingText { id, text_edit_id } => {
                 let comp = bd.get_component_mut(&id).unwrap();
                 let text_edit_rect = comp.get_text_edit_rect(text_edit_id, state).unwrap();
-                ui.scope_builder(UiBuilder::new().max_rect(text_edit_rect), |ui| {
-                    ui.add_sized(text_edit_rect.size(),
-                    TextEdit::multiline(comp.get_text_edit_mut(text_edit_id).unwrap())
-                        .background_color(if state.debounce {Color32::TRANSPARENT} else {ui.ctx().theme().get_bg_color()})
-                        .text_color(if state.debounce {Color32::TRANSPARENT} else {ui.ctx().theme().get_text_color()})
-                        .lock_focus(true)
-                        .font(egui::FontId::monospace(state.grid_size * 0.5 )));
-                });
-                painter.ctx().request_repaint();
+                show_text_edit(
+                    text_edit_rect,
+                    comp.get_text_edit_mut(text_edit_id).unwrap(),
+                    state,
+                    ui,
+                );
             }
         }
     }

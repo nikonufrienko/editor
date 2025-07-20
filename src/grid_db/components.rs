@@ -146,6 +146,7 @@ impl Net {
         color: Color32,
         width: f32,
         offset: GridPos,
+        scale: f32,
         bd: &GridBD,
     ) -> Option<String> {
         if self.points.is_empty() {
@@ -161,15 +162,17 @@ impl Net {
             .get_connection_position(self.end_point.connection_id, &SVG_DUMMY_STATE)?
             + offset_vec2;
         let mut points = Vec::with_capacity(self.points.len() + 2);
-        points.push(first_point);
+        points.push(first_point * scale);
 
         for i in 0..self.points.len() {
-            points.push(pos2(
-                (self.points[i].x + offset.x) as f32 + 0.5,
-                (self.points[i].y + offset.y) as f32 + 0.5,
-            ));
+            points.push(
+                pos2(
+                    (self.points[i].x + offset.x) as f32 + 0.5,
+                    (self.points[i].y + offset.y) as f32 + 0.5,
+                ) * scale,
+            );
         }
-        points.push(last_point);
+        points.push(last_point * scale);
         Some(svg_line(&points, color, width))
     }
 }
@@ -379,9 +382,10 @@ impl Component {
         }
     }
 
-    pub fn to_svg(&self, offset: GridPos, theme: Theme) -> String {
+    pub fn to_svg(&self, offset: GridPos, scale: f32, theme: Theme) -> String {
         match self {
-            Component::Primitive(g) => g.get_svg(offset, theme),
+            Component::Primitive(g) => g.get_svg(offset, scale, theme),
+            Component::TextField(f) => f.get_svg(offset, scale, theme),
             _ => "".into(), // TODO: fixme
         }
     }

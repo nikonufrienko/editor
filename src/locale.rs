@@ -35,6 +35,8 @@ pub struct Locale {
     pub theme_dark: &'static str,
     pub theme_light: &'static str,
     pub text_labels: &'static str,
+    pub cell_size: &'static str,
+    pub illegal_cell_size: &'static str,
 }
 
 pub const RU_LOCALE: Locale = Locale {
@@ -70,6 +72,8 @@ pub const RU_LOCALE: Locale = Locale {
     theme_dark: "Темная",
     theme_light: "Светлая",
     text_labels: "Текстовые метки",
+    cell_size: "Размер клетки:",
+    illegal_cell_size: "ОШИБКА: Неправильно задан размер клетки",
 };
 
 pub const EN_LOCALE: Locale = Locale {
@@ -105,6 +109,8 @@ pub const EN_LOCALE: Locale = Locale {
     theme_dark: "Dark",
     theme_light: "Light",
     text_labels: "Text labels",
+    cell_size: "Cell size:",
+    illegal_cell_size: "ERROR: illegal cell size",
 };
 
 pub fn get_system_default_locale() -> LocaleType {

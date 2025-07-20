@@ -3,13 +3,13 @@ use std::{
     i32, usize,
 };
 
-use egui::{Theme};
+use egui::Theme;
 use rstar::{AABB, PointDistance, RTree, RTreeObject};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     field::FieldState,
-    grid_db::{Component, ComponentColor, GridPos, Net, NetSegment, grid_pos},
+    grid_db::{Component, ComponentColor, GridPos, Net, NetSegment, STROKE_SCALE, grid_pos},
 }; // AABB = Axis-Aligned Bounding Box (прямоугольник)
 type Point = [i32; 2]; // Точка (x, y)
 
@@ -338,7 +338,7 @@ impl GridBD {
         .ok()
     }
 
-    pub fn dump_to_svg(&self, theme: Theme) -> String {
+    pub fn dump_to_svg(&self, theme: Theme, scale: f32) -> String {
         let [c_min_x, c_min_y, c_max_x, c_max_y];
         if self.components.values().len() >= 1 {
             let c_bbox = self.tree.root().envelope();
@@ -365,16 +365,22 @@ impl GridBD {
         let backgound = theme.get_bg_color().to_hex();
 
         // Fixme:
-        let w = max_x - min_x + 2;
-        let h: i32 = max_y - min_y + 2;
+        let w = (max_x - min_x + 2) as f32 * scale;
+        let h = (max_y - min_y + 2) as f32 * scale;
         let offset = grid_pos(-min_x, -min_y);
         let body = self
             .components
             .values()
-            .map(|comp| comp.to_svg(offset, theme))
+            .map(|comp| comp.to_svg(offset, scale, theme))
             .chain(self.nets.values().map(|net| {
-                net.to_svg(theme.get_stroke_color(), 0.1, offset, &self)
-                    .unwrap_or_default()
+                net.to_svg(
+                    theme.get_stroke_color(),
+                    STROKE_SCALE * scale,
+                    offset,
+                    scale,
+                    &self,
+                )
+                .unwrap_or_default()
             }))
             .collect::<Vec<String>>()
             .join("\n");

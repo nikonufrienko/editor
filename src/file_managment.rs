@@ -1,4 +1,7 @@
-use std::sync::{Arc, atomic::AtomicBool};
+use std::{
+    cell,
+    sync::{Arc, atomic::AtomicBool},
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Read;
@@ -14,7 +17,10 @@ use crate::{grid_db::GridBD, locale::Locale};
 enum FileManagerState {
     OpenFile,
     SaveFile,
-    ExportSVGDialog { export_theme: Theme },
+    ExportSVGDialog {
+        export_theme: Theme,
+        cell_size: String,
+    },
     ExportSVG,
     None,
     Error(&'static str),
@@ -125,15 +131,27 @@ impl FileManager {
                 FileManagerState::ExportSVG => {
                     ui.label(locale.ongoing_export_to_svg);
                 }
-                FileManagerState::ExportSVGDialog { export_theme } => {
+                FileManagerState::ExportSVGDialog {
+                    export_theme,
+                    cell_size,
+                } => {
                     ui.horizontal(|ui| {
                         ui.label(locale.theme);
                         ui.radio_value(export_theme, Theme::Dark, locale.theme_dark);
                         ui.radio_value(export_theme, Theme::Light, locale.theme_light);
                     });
+                    ui.horizontal(|ui| {
+                        ui.label(locale.cell_size);
+                        ui.add(egui::TextEdit::singleline(cell_size).desired_width(30.0))
+                    });
                     if ui.button("OK").clicked() {
-                        let theme = export_theme.clone();
-                        self.export_to_svg(bd, file_name, theme);
+                        let theme = *export_theme;
+                        match cell_size.parse::<f32>() {
+                            Ok(cell_size) => self.export_to_svg(bd, file_name, theme, cell_size),
+                            Err(_) => {
+                                self.state = FileManagerState::Error(locale.illegal_cell_size)
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -189,7 +207,6 @@ impl FileManager {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn execute<F: Future<Output = ()> + Send + 'static>(f: F) {
-        // this is stupid... use any executor of your choice instead
         smol::spawn(f).detach();
     }
     #[cfg(target_arch = "wasm32")]
@@ -274,16 +291,17 @@ impl FileManager {
     pub fn start_export_svg(&mut self, default_theme: Theme) {
         self.state = FileManagerState::ExportSVGDialog {
             export_theme: default_theme,
+            cell_size: "40".into(),
         };
     }
 
-    fn export_to_svg(&mut self, bd: &GridBD, file_name: &String, theme: Theme) {
+    fn export_to_svg(&mut self, bd: &GridBD, file_name: &String, theme: Theme, grid_size: f32) {
         self.state = FileManagerState::ExportSVG;
         let default_file_name = format!("{file_name}.svg");
         #[cfg(not(target_arch = "wasm32"))]
         {
             let bd_arc = Arc::new(bd);
-            let data = bd_arc.dump_to_svg(theme);
+            let data = bd_arc.dump_to_svg(theme, grid_size);
             let arc = self.done.clone().clone();
             Self::execute(async move {
                 if let Some(file) = rfd::AsyncFileDialog::new()
@@ -298,7 +316,7 @@ impl FileManager {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            let data = bd.dump_to_svg(theme);
+            let data = bd.dump_to_svg(theme, grid_size);
             use eframe::wasm_bindgen::JsCast;
             use eframe::wasm_bindgen::prelude::Closure;
             use web_sys::{Blob, BlobPropertyBag, Url};
