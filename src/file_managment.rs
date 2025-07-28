@@ -1,7 +1,4 @@
-use std::{
-    cell,
-    sync::{Arc, atomic::AtomicBool},
-};
+use std::sync::{Arc, atomic::AtomicBool};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Read;

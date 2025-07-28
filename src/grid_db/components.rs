@@ -426,6 +426,20 @@ impl Component {
         }
     }
 
+    /// Returns immutable reference to the text in a text edit field
+    pub fn get_text_edit(&self, id: Id) -> Option<&String> {
+        match self {
+            Component::TextField(f) => {
+                if id == 0 {
+                    Some(&f.text)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Returns mutable reference to the text in a text edit field
     pub fn get_text_edit_mut(&mut self, id: Id) -> Option<&mut String> {
         match self {

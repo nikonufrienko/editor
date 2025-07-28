@@ -129,11 +129,7 @@ pub fn show_text_edit(
         */
     };
     let ui_builder = UiBuilder::new().max_rect(text_edit_rect).style(style);
-    let bg_color = if state.debounce {
-        Color32::TRANSPARENT
-    } else {
-        ui.ctx().theme().get_bg_color()
-    };
+    let bg_color = ui.ctx().theme().get_bg_color();
     let font_size = state.grid_size * TextField::FONT_SCALE;
     //ui.painter().rect_filled(text_edit_rect, 0.0, bg_color);
     ui.scope_builder(ui_builder, |ui| {

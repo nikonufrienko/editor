@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::{
     grid_db::{GridBD, GridPos, LodLevel, grid_pos, grid_rect},
-    interaction_manager::{ConnectionBuilder, InteractionManager, draw_component_drag_preview},
+    interaction_manager::{InteractionManager, draw_component_drag_preview},
     preview::DragComponentResponse,
 };
 
@@ -122,7 +122,6 @@ pub struct Field {
     pub state: FieldState,
     pub grid_type: GridType,
     pub grid_db: GridBD,
-    connection_builder: ConnectionBuilder,
     external_drag_resp: DragComponentResponse,
     interaction_manager: InteractionManager,
     debounce_inst: Instant,
@@ -164,7 +163,6 @@ impl Field {
             grid_type: GridType::Cells,
             grid_db: db,
             external_drag_resp: DragComponentResponse::None,
-            connection_builder: ConnectionBuilder::new(),
             interaction_manager: InteractionManager::new(),
             debounce_inst: Instant::now(),
         }
@@ -327,7 +325,8 @@ impl Field {
                         }
                     }
                 }
-                self.grid_db.push_component(component);
+                self.interaction_manager
+                    .add_new_component(component, &mut self.grid_db);
             }
             _ => {}
         }
@@ -364,13 +363,6 @@ impl Field {
             )))
         }));
 
-        self.connection_builder
-            .update(&mut self.grid_db, &self.state, &response, &painter);
-        self.connection_builder.draw(
-            &self.grid_db,
-            &self.state,
-            &ui.painter().with_clip_rect(self.state.rect),
-        );
         self.handle_drag_resp(
             &ui.painter().with_clip_rect(self.state.rect),
             ui.visuals().strong_text_color().gamma_multiply(0.08),

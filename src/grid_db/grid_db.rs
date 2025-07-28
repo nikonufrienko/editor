@@ -122,9 +122,10 @@ impl GridBD {
         self.tree.insert(rect);
     }
 
-    pub fn push_component(&mut self, component: Component) {
-        self.insert_component(self.next_component_id, component);
+    pub fn allocate_component(&mut self) -> Id {
+        let comp_id = self.next_component_id;
         self.next_component_id += 1;
+        return comp_id;
     }
 
     pub fn remove_component(&mut self, id: &Id) -> Option<Component> {
@@ -208,9 +209,13 @@ impl GridBD {
         ];
     }
 
-    pub fn add_net(&mut self, net: Net) {
+    pub fn allocate_net(&mut self) -> Id {
         let net_id = self.next_net_id;
         self.next_net_id += 1;
+        net_id
+    }
+
+    pub fn insert_net(&mut self, net_id: Id, net: Net) {
         for segment in net.get_segments(net_id) {
             self.net_tree.insert(segment);
         }
@@ -224,6 +229,10 @@ impl GridBD {
             }
         }
         self.nets.insert(net_id, net);
+    }
+
+    pub fn get_net(&self, id: &Id) -> Option<&Net> {
+        self.nets.get(id)
     }
 
     pub fn remove_net(&mut self, id: &Id) -> Option<Net> {
@@ -393,15 +402,20 @@ impl GridBD {
     pub fn load_from_json(json: String) -> Result<Self, serde_json::Error> {
         let dump: GridBdDump = serde_json::from_str(&json)?;
         let mut result = Self::new();
+
+        // Allocate new nets and components:
         if let Some(max_id) = dump.components.keys().max() {
             result.next_component_id = max_id + 1;
+        }
+        if let Some(max_id) = dump.nets.keys().max() {
+            result.next_net_id = max_id + 1;
         }
 
         for (id, component) in dump.components {
             result.insert_component(id, component);
         }
-        for (_i, net) in dump.nets {
-            result.add_net(net);
+        for (id, net) in dump.nets {
+            result.insert_net(id, net);
         }
         // Fixme: need load with same id???
         Ok(result)

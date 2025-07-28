@@ -223,6 +223,7 @@ pub trait ComponentColor {
     fn get_text_color(&self) -> Color32;
     fn get_bg_color(&self) -> Color32;
     fn get_stroke(&self, state: &FieldState) -> Stroke;
+    fn get_anchor_color(&self) -> Color32;
 }
 
 pub const STROKE_SCALE: f32 = 0.1;
@@ -245,6 +246,13 @@ impl ComponentColor for Theme {
         match self {
             Self::Dark => Color32::WHITE,
             Self::Light => Color32::DARK_GRAY,
+        }
+    }
+
+    fn get_anchor_color(&self) -> Color32 {
+        match self {
+            Self::Dark => Color32::GRAY,
+            Self::Light => Color32::BLACK,
         }
     }
 

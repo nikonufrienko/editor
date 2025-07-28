@@ -25,7 +25,7 @@ Main features:
     - [x] POINT
     - [ ] DFF_S_RST_N (D-type flip-flop with synchronous reset_n)
     - [ ] DFF_A_RST_N (D-type flip-flop with asynchronous reset_n)
-    - [ ] TEXT LABEL
+    - [x] TEXT_FIELD
 * [ ] Add component parameterization settings.
 * Add SVG export:
     - [x] For connections (Net).

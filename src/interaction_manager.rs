@@ -1,28 +1,16 @@
+use std::collections::LinkedList;
+
 use crate::{
     field::{FieldState, blocked_cell, filled_cells},
     grid_db::{
-        Component, ComponentAction, GridBD, GridBDConnectionPoint, GridPos, Id, Net,
-        RotationDirection, grid_pos, show_text_edit,
+        Component, ComponentAction, ComponentColor, GridBD, GridBDConnectionPoint, GridPos, Id,
+        Net, RotationDirection, grid_pos, show_text_edit,
     },
 };
 use egui::{
-    Color32, CursorIcon, Painter, Pos2, Rect, Response, Stroke, StrokeKind, Ui, Vec2, vec2,
+    Color32, CursorIcon, KeyboardShortcut, Modifiers, Painter, Pos2, Rect, Response, Stroke,
+    StrokeKind, Ui, Vec2, vec2,
 };
-
-#[derive(PartialEq)]
-enum InteractionState {
-    Idle,
-    NetDragged { net_id: Id, segment_id: Id },
-    ComponentSelected(Id),
-    ComponentDragged { id: Id, grab_ofs: Vec2 },
-    Resizing { id: Id, direction: ResizeDirection },
-    EditingText { id: Id, text_edit_id: Id },
-}
-
-pub struct InteractionManager {
-    state: InteractionState,
-    drag_delta: Vec2,
-}
 
 pub fn draw_component_drag_preview(
     bd: &GridBD,
@@ -54,49 +42,109 @@ pub fn draw_component_drag_preview(
     painter.extend(result);
 }
 
+#[derive(PartialEq)]
+enum InteractionState {
+    Idle,
+    NetDragged {
+        net_id: Id,
+        segment_id: Id,
+    },
+    ComponentSelected(Id),
+    ComponentDragged {
+        id: Id,
+        grab_ofs: Vec2,
+    },
+    Resizing {
+        id: Id,
+        direction: ResizeDirection,
+    },
+    EditingText {
+        id: Id,
+        text_edit_id: Id,
+        text_buffer: String,
+    },
+    CreatingNet,
+}
+
+pub struct InteractionManager {
+    state: InteractionState,
+    drag_delta: Vec2,
+    applied_transactions: LinkedList<Transaction>,
+    reverted_transactions: LinkedList<Transaction>,
+    connection_builder: ConnectionBuilder,
+}
+
 impl InteractionManager {
     pub fn new() -> Self {
         Self {
             state: InteractionState::Idle,
             drag_delta: vec2(0.0, 0.0),
+            applied_transactions: LinkedList::new(),
+            reverted_transactions: LinkedList::new(),
+            connection_builder: ConnectionBuilder::new(),
         }
     }
 
-    fn move_net_segment(&self, cursor_grid_pos: &GridPos, bd: &mut GridBD) {
-        match self.state {
-            InteractionState::NetDragged { net_id, segment_id } => {
-                let GridPos { x, y } = cursor_grid_pos;
-                let mut net = bd.remove_net(&net_id).unwrap();
-                let p1 = net.points[segment_id];
-                let p2 = net.points[segment_id + 1];
-                if p1.y == p2.y {
-                    net.points[segment_id] = grid_pos(p1.x, *y);
-                    net.points[segment_id + 1] = grid_pos(p2.x, *y);
-                } else {
-                    net.points[segment_id] = grid_pos(*x, p1.y);
-                    net.points[segment_id + 1] = grid_pos(*x, p2.y);
-                }
-                if net.points.len() > 0 && (segment_id == net.points.len() - 2) {
-                    net.points.push(p2);
-                }
-                if segment_id == 0 {
-                    net.points.insert(0, p1);
-                }
-                net.points = simplify_path(net.points);
-                bd.add_net(net);
-            }
-            _ => {}
-        }
+    pub fn add_new_component(&mut self, component: Component, bd: &mut GridBD) {
+        self.apply_new_transaction(
+            Transaction::ChangeComponent {
+                comp_id: bd.allocate_component(),
+                old_comp: None,
+                new_comp: Some(component),
+            },
+            bd,
+        );
     }
 
-    fn move_net_connection_point(
+    fn apply_new_transaction(&mut self, mut transaction: Transaction, bd: &mut GridBD) {
+        transaction.apply(bd);
+        self.applied_transactions.push_back(transaction);
+        self.reverted_transactions.clear();
+    }
+
+    fn move_net_segment(
+        &mut self,
+        net_id: Id,
+        segment_id: Id,
+        cursor_grid_pos: &GridPos,
+        bd: &mut GridBD,
+    ) {
+        let GridPos { x, y } = cursor_grid_pos;
+        let mut net = bd.get_net(&net_id).unwrap().clone();
+        let p1: GridPos = net.points[segment_id];
+        let p2 = net.points[segment_id + 1];
+        if p1.y == p2.y {
+            net.points[segment_id] = grid_pos(p1.x, *y);
+            net.points[segment_id + 1] = grid_pos(p2.x, *y);
+        } else {
+            net.points[segment_id] = grid_pos(*x, p1.y);
+            net.points[segment_id + 1] = grid_pos(*x, p2.y);
+        }
+        if net.points.len() > 0 && (segment_id == net.points.len() - 2) {
+            net.points.push(p2);
+        }
+        if segment_id == 0 {
+            net.points.insert(0, p1);
+        }
+        net.points = simplify_path(net.points);
+        self.apply_new_transaction(
+            Transaction::ChangeNet {
+                net_id: net_id,
+                old_net: None,
+                new_net: Some(net),
+            },
+            bd,
+        );
+    }
+
+    fn get_move_net_connection_point_transaction(
         comp_id: Id,
         net_id: Id,
         bd: &mut GridBD,
         delta_x: i32,
         delta_y: i32,
-    ) {
-        let mut net = bd.remove_net(&net_id).unwrap();
+    ) -> Transaction {
+        let mut net = bd.get_net(&net_id).unwrap().clone();
         let pts_len = net.points.len();
 
         if pts_len >= 2 {
@@ -167,10 +215,14 @@ impl InteractionManager {
         }
 
         net.points = simplify_path(net.points);
-        bd.add_net(net);
+        return Transaction::ChangeNet {
+            net_id: net_id,
+            old_net: None,
+            new_net: Some(net),
+        };
     }
 
-    fn move_component(&self, comp_id: Id, bd: &mut GridBD, new_pos: GridPos) {
+    fn move_component(&mut self, comp_id: Id, bd: &mut GridBD, new_pos: GridPos) {
         let comp = bd.get_component(&comp_id).unwrap();
 
         if bd.is_available_location(new_pos, comp.get_dimension(), comp_id) {
@@ -178,17 +230,25 @@ impl InteractionManager {
             let delta_y = new_pos.y - old_pos.y;
             let delta_x = new_pos.x - old_pos.x;
 
-            for net_id in bd.get_connected_nets(&comp_id) {
-                Self::move_net_connection_point(comp_id, net_id, bd, delta_x, delta_y);
-            }
+            let mut new_comp = comp.clone();
+            new_comp.set_pos(new_pos);
 
-            let mut comp = bd.remove_component(&comp_id).unwrap();
-            comp.set_pos(new_pos);
-            bd.insert_component(comp_id, comp);
+            let mut transactions = LinkedList::new();
+            for net_id in bd.get_connected_nets(&comp_id) {
+                transactions.push_back(Self::get_move_net_connection_point_transaction(
+                    comp_id, net_id, bd, delta_x, delta_y,
+                ));
+            }
+            transactions.push_back(Transaction::ChangeComponent {
+                comp_id,
+                old_comp: None,
+                new_comp: Some(new_comp),
+            });
+            self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
         }
     }
 
-    fn rotate_component(&self, comp_id: Id, bd: &mut GridBD, dir: RotationDirection) {
+    fn rotate_component(&mut self, comp_id: Id, bd: &mut GridBD, dir: RotationDirection) {
         let comp = bd.get_component(&comp_id).unwrap().clone();
         let mut rotated_comp = comp.clone();
         rotated_comp.rotate(dir);
@@ -215,6 +275,7 @@ impl InteractionManager {
                 })
                 .collect();
 
+            let mut transactions = LinkedList::new();
             for (i, net_id) in nets_ids.iter().enumerate() {
                 let old_pos = comp.get_connection_dock_cell(connections_ids[i]).unwrap();
                 let new_pos = rotated_comp
@@ -222,23 +283,39 @@ impl InteractionManager {
                     .unwrap();
                 let delta_y = new_pos.y - old_pos.y;
                 let delta_x = new_pos.x - old_pos.x;
-                Self::move_net_connection_point(comp_id, *net_id, bd, delta_x, delta_y);
+                transactions.push_back(Self::get_move_net_connection_point_transaction(
+                    comp_id, *net_id, bd, delta_x, delta_y,
+                ));
             }
 
-            bd.remove_component(&comp_id).unwrap();
-            bd.insert_component(comp_id, rotated_comp);
+            transactions.push_back(Transaction::ChangeComponent {
+                comp_id,
+                old_comp: None,
+                new_comp: Some(rotated_comp),
+            });
+            self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
         }
     }
 
-    fn apply_resize(bd: &mut GridBD, comp_id: Id, new_size: (i32, i32)) {
+    fn apply_resize(&mut self, bd: &mut GridBD, comp_id: Id, new_size: (i32, i32)) {
         let comp = bd.get_component(&comp_id).unwrap();
 
         if bd.is_available_location(comp.get_position(), new_size, comp_id) {
-            let mut comp = bd.remove_component(&comp_id).unwrap();
+            let mut comp = bd.get_component(&comp_id).unwrap().clone();
             comp.set_size(new_size);
-            bd.insert_component(comp_id, comp);
+            self.apply_new_transaction(
+                Transaction::ChangeComponent {
+                    comp_id: comp_id,
+                    old_comp: None,
+                    new_comp: Some(comp),
+                },
+                bd,
+            );
         }
     }
+
+    const UNDO_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::CTRL, egui::Key::Z);
+    const REDO_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::CTRL, egui::Key::Y);
 
     /// Refreshes action state.
     /// Returns false if no action performed.
@@ -250,13 +327,48 @@ impl InteractionManager {
         ui: &egui::Ui,
     ) -> bool {
         match self.state {
+            InteractionState::EditingText {
+                id: _,
+                text_edit_id: _,
+                text_buffer: _,
+            } => {}
+            _ => {
+                if ui.input_mut(|i| i.consume_shortcut(&Self::UNDO_SHORTCUT)) {
+                    // Undo:
+                    match self.state {
+                        InteractionState::Idle => {
+                            if let Some(mut trans) = self.applied_transactions.pop_back() {
+                                trans.revert(bd);
+                                self.reverted_transactions.push_front(trans);
+                            }
+                        }
+                        _ => {
+                            self.state = InteractionState::Idle;
+                        }
+                    }
+                } else if ui.input_mut(|i| i.consume_shortcut(&Self::REDO_SHORTCUT)) {
+                    // Redo:
+                    match self.state {
+                        InteractionState::Idle => {
+                            if let Some(mut trans) = self.reverted_transactions.pop_front() {
+                                trans.apply(bd);
+                                self.applied_transactions.push_back(trans);
+                            }
+                        }
+                        _ => {} // ???
+                    }
+                }
+            }
+        }
+
+        match &self.state {
             InteractionState::NetDragged { net_id, segment_id } => {
                 if let Some(hover_pos) = state.cursor_pos {
                     let segment = bd
                         .nets
                         .get(&net_id)
                         .unwrap()
-                        .get_segment(segment_id, net_id)
+                        .get_segment(*segment_id, *net_id)
                         .unwrap();
                     if segment.is_horizontal() {
                         ui.ctx()
@@ -270,12 +382,23 @@ impl InteractionManager {
                         return true;
                     } else {
                         self.drag_delta = vec2(0.0, 0.0);
-                        self.move_net_segment(&state.screen_to_grid(hover_pos), bd);
+                        self.move_net_segment(
+                            *net_id,
+                            *segment_id,
+                            &state.screen_to_grid(hover_pos),
+                            bd,
+                        );
                         self.state = InteractionState::Idle
                     }
                 }
             }
             InteractionState::Idle => {
+                self.connection_builder.update(bd, state, &response);
+                if self.connection_builder.is_active() {
+                    self.state = InteractionState::CreatingNet;
+                    return true;
+                }
+
                 if let Some(segment) = bd.get_hovered_segment(state) {
                     if segment.is_horizontal() {
                         ui.ctx()
@@ -311,18 +434,20 @@ impl InteractionManager {
                     Self::is_bottom_selection_border_hovered(state.cursor_pos, state, comp);
 
                 // Check actions:
-                let mut action = Self::get_action(comp, state);
+                let action = Self::get_action(comp, state);
                 if ui.input(|i| i.key_pressed(egui::Key::Delete)) {
-                    action = ComponentAction::Remove;
+                    bd.remove_component_with_connected_nets(&id);
+                    self.state = InteractionState::Idle;
+                    return true;
                 }
                 if response.clicked() && action != ComponentAction::None {
                     match action {
                         ComponentAction::RotateUp => {
-                            self.rotate_component(id, bd, RotationDirection::Up);
+                            self.rotate_component(*id, bd, RotationDirection::Up);
                             self.state = InteractionState::Idle;
                         }
                         ComponentAction::RotateDown => {
-                            self.rotate_component(id, bd, RotationDirection::Down);
+                            self.rotate_component(*id, bd, RotationDirection::Down);
                             self.state = InteractionState::Idle;
                         }
                         ComponentAction::Remove => {
@@ -338,8 +463,9 @@ impl InteractionManager {
                         ui.ctx().output_mut(|o| o.cursor_icon = CursorIcon::Text);
                         if response.clicked() {
                             self.state = InteractionState::EditingText {
-                                id: id,
+                                id: *id,
                                 text_edit_id,
+                                text_buffer: comp.get_text_edit(text_edit_id).unwrap().clone(),
                             };
                             return true;
                         }
@@ -351,7 +477,7 @@ impl InteractionManager {
                     if response.dragged() {
                         if let Some(hovepos) = response.hover_pos() {
                             self.state = InteractionState::ComponentDragged {
-                                id,
+                                id: *id,
                                 grab_ofs: hovepos.to_vec2()
                                     - state.grid_to_screen(&comp.get_position()).to_vec2(),
                             };
@@ -363,7 +489,7 @@ impl InteractionManager {
                         .output_mut(|o| o.cursor_icon = CursorIcon::ResizeHorizontal);
                     if response.is_pointer_button_down_on() {
                         self.state = InteractionState::Resizing {
-                            id: id,
+                            id: *id,
                             direction: ResizeDirection::Right,
                         };
                         return true;
@@ -373,7 +499,7 @@ impl InteractionManager {
                         .output_mut(|o| o.cursor_icon = CursorIcon::ResizeVertical);
                     if response.is_pointer_button_down_on() {
                         self.state = InteractionState::Resizing {
-                            id: id,
+                            id: *id,
                             direction: ResizeDirection::Down,
                         };
                         return true;
@@ -388,7 +514,7 @@ impl InteractionManager {
                         .output_mut(|o| o.cursor_icon = CursorIcon::Grabbing);
                 } else {
                     if let Some(pos) = state.cursor_pos {
-                        self.move_component(id, bd, state.screen_to_grid(pos - grab_ofs));
+                        self.move_component(*id, bd, state.screen_to_grid(pos - *grab_ofs));
                     }
                     self.state = InteractionState::Idle;
                 }
@@ -404,24 +530,49 @@ impl InteractionManager {
                     });
                 } else {
                     let comp = bd.get_component(&id).unwrap();
-                    if let Some(new_size) = Self::get_new_size(comp, state, direction) {
-                        Self::apply_resize(bd, id, new_size);
+                    if let Some(new_size) = Self::get_new_size(comp, state, *direction) {
+                        self.apply_resize(bd, *id, new_size);
                     }
                     self.state = InteractionState::Idle;
                 }
                 return true;
             }
-            InteractionState::EditingText { id, text_edit_id } => {
+            InteractionState::EditingText {
+                id,
+                text_edit_id,
+                text_buffer,
+            } => {
                 let comp = bd.get_component(&id).unwrap();
-                let text_edit_rect = comp.get_text_edit_rect(text_edit_id, state).unwrap();
+                let text_edit_rect = comp.get_text_edit_rect(*text_edit_id, state).unwrap();
 
                 if response.clicked() {
                     if let Some(cursor_pos) = state.cursor_pos {
                         if !text_edit_rect.contains(cursor_pos) {
+                            let mut new_comp = comp.clone();
+                            *(new_comp.get_text_edit_mut(*id).unwrap()) = text_buffer.clone();
+                            self.apply_new_transaction(
+                                Transaction::ChangeComponent {
+                                    comp_id: *id,
+                                    old_comp: None,
+                                    new_comp: Some(new_comp),
+                                },
+                                bd,
+                            );
                             self.state = InteractionState::Idle;
                             return true;
                         }
                     }
+                }
+            }
+            InteractionState::CreatingNet => {
+                if let Some(transaction) = self.connection_builder.update(bd, state, response) {
+                    self.apply_new_transaction(transaction, bd);
+                }
+                match self.connection_builder.state {
+                    ConnectionBuilderState::IDLE => {
+                        self.state = InteractionState::Idle;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -429,7 +580,7 @@ impl InteractionManager {
     }
 
     pub fn draw(&mut self, bd: &mut GridBD, state: &FieldState, painter: &Painter, ui: &mut Ui) {
-        match self.state {
+        match &mut self.state {
             InteractionState::NetDragged { net_id, segment_id } => {
                 let ofs = vec2(0.5, 0.5) * state.grid_size;
                 if let Some(pos) = state.cursor_pos {
@@ -438,7 +589,7 @@ impl InteractionManager {
                         .nets
                         .get(&net_id)
                         .unwrap()
-                        .get_segment(segment_id, net_id)
+                        .get_segment(*segment_id, *net_id)
                         .unwrap();
                     let (p1, p2) = if segment.is_horizontal() {
                         (
@@ -456,7 +607,7 @@ impl InteractionManager {
                         .nets
                         .get(&net_id)
                         .unwrap()
-                        .get_segment(segment_id + 1, net_id)
+                        .get_segment(*segment_id + 1, *net_id)
                     {
                         pts.push(state.grid_to_screen(&next_segment.pos2) + ofs);
                     } else {
@@ -466,7 +617,7 @@ impl InteractionManager {
                         .nets
                         .get(&net_id)
                         .unwrap()
-                        .get_segment(segment_id.wrapping_sub(1), net_id)
+                        .get_segment(segment_id.wrapping_sub(1), *net_id)
                     {
                         pts.insert(0, state.grid_to_screen(&prev_segment.pos1) + ofs);
                     } else {
@@ -509,8 +660,8 @@ impl InteractionManager {
                         state,
                         bd.get_component(&id).unwrap().get_dimension(),
                         painter,
-                        pos - grab_ofs,
-                        Some(id),
+                        pos - *grab_ofs,
+                        Some(*id),
                         ui.visuals().strong_text_color().gamma_multiply(0.08),
                         comp,
                     );
@@ -519,7 +670,7 @@ impl InteractionManager {
             InteractionState::Resizing { id, direction } => {
                 if let Some(comp) = bd.get_component(&id) {
                     if let Some(resize_rect) =
-                        Self::get_resize_selection_rect(comp, state, direction)
+                        Self::get_resize_selection_rect(comp, state, *direction)
                     {
                         painter.rect_stroke(
                             resize_rect,
@@ -533,17 +684,18 @@ impl InteractionManager {
                     }
                 }
             }
-            InteractionState::EditingText { id, text_edit_id } => {
+            InteractionState::EditingText {
+                id,
+                text_edit_id,
+                text_buffer,
+            } => {
                 let comp = bd.get_component_mut(&id).unwrap();
-                let text_edit_rect = comp.get_text_edit_rect(text_edit_id, state).unwrap();
-                show_text_edit(
-                    text_edit_rect,
-                    comp.get_text_edit_mut(text_edit_id).unwrap(),
-                    state,
-                    ui,
-                );
+                let text_edit_rect = comp.get_text_edit_rect(*text_edit_id, state).unwrap();
+                show_text_edit(text_edit_rect, text_buffer, state, ui);
             }
+            _ => {}
         }
+        self.connection_builder.draw(bd, state, painter);
     }
 
     fn get_action(comp: &Component, state: &FieldState) -> ComponentAction {
@@ -661,13 +813,14 @@ enum ResizeDirection {
 
 enum ConnectionBuilderState {
     IDLE,
-    ACTIVE,
+    ACTIVE {
+        point: GridBDConnectionPoint,
+        anchors: Vec<GridPos>,
+    },
 }
 
 pub struct ConnectionBuilder {
     state: ConnectionBuilderState,
-    point: Option<GridBDConnectionPoint>,
-    anchors: Vec<GridPos>,
 }
 
 fn simplify_path(path: Vec<GridPos>) -> Vec<GridPos> {
@@ -708,149 +861,266 @@ impl ConnectionBuilder {
         bd: &GridBD,
         target: &GridBDConnectionPoint,
     ) -> Option<Vec<GridPos>> {
-        let cp = &self.point?;
-        let comp1 = bd.get_component(&cp.component_id)?;
-        let mut result = vec![comp1.get_connection_dock_cell(cp.connection_id).unwrap()];
-        self.anchors.iter().for_each(|a| {
-            result.extend(bd.find_net_path(result.last().unwrap().clone(), a.clone())); // !!!
-            result.push(a.clone());
-        });
-        let target_comp = bd.get_component(&target.component_id).unwrap();
-        let target_pos = target_comp
-            .get_connection_dock_cell(target.connection_id)
-            .unwrap();
-        result.extend(bd.find_net_path(result.last().unwrap().clone(), target_pos.clone())); // !!!
-        result.push(target_pos);
-        return Some(simplify_path(result));
-    }
-
-    pub fn new() -> Self {
-        Self {
-            state: ConnectionBuilderState::IDLE,
-            point: None,
-            anchors: vec![],
+        match &self.state {
+            ConnectionBuilderState::ACTIVE { point, anchors } => {
+                let comp1 = bd.get_component(&point.component_id)?;
+                let mut result = vec![comp1.get_connection_dock_cell(point.connection_id).unwrap()];
+                anchors.iter().for_each(|a| {
+                    result.extend(bd.find_net_path(result.last().unwrap().clone(), a.clone())); // !!!
+                    result.push(a.clone());
+                });
+                let target_comp = bd.get_component(&target.component_id).unwrap();
+                let target_pos = target_comp
+                    .get_connection_dock_cell(target.connection_id)
+                    .unwrap();
+                result.extend(bd.find_net_path(result.last().unwrap().clone(), target_pos.clone())); // !!!
+                result.push(target_pos);
+                Some(simplify_path(result))
+            }
+            _ => None,
         }
     }
 
-    pub fn update(
+    fn new() -> Self {
+        Self {
+            state: ConnectionBuilderState::IDLE,
+        }
+    }
+
+    fn update(
         &mut self,
         bd: &mut GridBD,
         state: &FieldState,
         response: &Response,
-        painter: &egui::Painter,
-    ) {
+    ) -> Option<Transaction> {
         if let Some(con) = bd.get_hovered_connection(&state) {
-            let comp = bd.get_component(&con.component_id).unwrap();
-            comp.highlight_connection(con.connection_id, state, painter);
             if response.clicked() {
-                self.toggle(bd, con);
+                return self.toggle(bd, con);
             }
         } else if response.clicked() {
             if let Some(pos) = state.cursor_pos {
                 self.add_anchor(state.screen_to_grid(pos));
             }
         }
+        return None;
     }
 
-    pub fn toggle(&mut self, bd: &mut GridBD, point: GridBDConnectionPoint) {
+    fn toggle(
+        &mut self,
+        bd: &mut GridBD,
+        target_point: GridBDConnectionPoint,
+    ) -> Option<Transaction> {
         match self.state {
             ConnectionBuilderState::IDLE => {
-                self.point = Some(point);
-                self.state = ConnectionBuilderState::ACTIVE;
+                self.state = ConnectionBuilderState::ACTIVE {
+                    point: target_point,
+                    anchors: vec![],
+                };
+                None
             }
-            ConnectionBuilderState::ACTIVE => {
-                let old_point = self.point.clone().unwrap();
+            ConnectionBuilderState::ACTIVE { point, anchors: _ } => {
+                let result =
+                    if let Some(points) = self.generate_full_path_by_anchors(bd, &target_point) {
+                        Some(Transaction::ChangeNet {
+                            net_id: bd.allocate_net(),
+                            old_net: None,
+                            new_net: Some(Net {
+                                start_point: point,
+                                end_point: target_point,
+                                points: points,
+                            }),
+                        })
+                    } else {
+                        None
+                    };
                 self.state = ConnectionBuilderState::IDLE;
-                if let Some(points) = self.generate_full_path_by_anchors(bd, &point) {
-                    bd.add_net(Net {
-                        start_point: old_point,
-                        end_point: point,
-                        points: points,
-                    });
-                }
-                self.point = None;
-                self.anchors.clear();
+                return result;
             }
         }
     }
 
     fn add_anchor(&mut self, cell: GridPos) {
-        match self.state {
-            ConnectionBuilderState::ACTIVE => self.anchors.push(cell),
+        match &mut self.state {
+            ConnectionBuilderState::ACTIVE { point: _, anchors } => anchors.push(cell),
             ConnectionBuilderState::IDLE => {}
         }
     }
 
     fn draw_anchors(&self, state: &FieldState, painter: &egui::Painter) {
-        self.anchors.iter().for_each(|a| {
-            let r1 = Rect::from_min_size(
-                state.grid_to_screen(a),
-                vec2(state.grid_size, state.grid_size),
-            )
-            .scale_from_center(0.8);
+        match &self.state {
+            ConnectionBuilderState::ACTIVE { point: _, anchors } => {
+                anchors.iter().for_each(|a| {
+                    let r1 = Rect::from_min_size(
+                        state.grid_to_screen(a),
+                        vec2(state.grid_size, state.grid_size),
+                    )
+                    .scale_from_center(0.8);
 
-            let r2 = r1.scale_from_center(0.5);
-            let stroke = Stroke::new(state.grid_size * 0.1, Color32::GRAY);
-            painter.line_segment([r1.left_top(), r2.left_top()], stroke);
-            painter.line_segment([r1.left_bottom(), r2.left_bottom()], stroke);
-            painter.line_segment([r1.right_top(), r2.right_top()], stroke);
-            painter.line_segment([r1.right_bottom(), r2.right_bottom()], stroke);
-        });
+                    let r2 = r1.scale_from_center(0.5);
+                    let stroke = Stroke::new(
+                        state.grid_size * 0.1,
+                        painter.ctx().theme().get_anchor_color(),
+                    );
+                    painter.line_segment([r1.left_top(), r2.left_top()], stroke);
+                    painter.line_segment([r1.left_bottom(), r2.left_bottom()], stroke);
+                    painter.line_segment([r1.right_top(), r2.right_top()], stroke);
+                    painter.line_segment([r1.right_bottom(), r2.right_bottom()], stroke);
+                });
+            }
+            _ => {}
+        }
     }
 
     pub fn draw(&self, bd: &GridBD, state: &FieldState, painter: &egui::Painter) {
-        if let Some(point) = &self.point {
-            if let Some(comp) = bd.get_component(&point.component_id) {
-                self.draw_anchors(state, painter);
-                let p1 = comp
-                    .get_connection_position(point.connection_id, state)
-                    .unwrap();
-                let p1_1_grid = comp.get_connection_dock_cell(point.connection_id).unwrap();
-                let mut points = vec![
-                    p1,
-                    state.grid_to_screen(&p1_1_grid)
-                        + vec2(0.5 * state.grid_size, 0.5 * state.grid_size),
-                ];
-                let mut last_grid_p = p1_1_grid;
-                self.anchors.iter().for_each(|a| {
-                    let path = bd.find_net_path(last_grid_p.clone(), a.clone());
-                    points.extend(path.iter().map(|t| {
-                        state.grid_to_screen(t) + vec2(0.5 * state.grid_size, 0.5 * state.grid_size)
-                    }));
-                    points.push(
-                        state.grid_to_screen(a)
+        if let Some(con) = bd.get_hovered_connection(&state) {
+            bd.get_component(&con.component_id)
+                .unwrap()
+                .highlight_connection(con.connection_id, state, painter);
+        }
+        match &self.state {
+            ConnectionBuilderState::ACTIVE { point, anchors } => {
+                if let Some(comp) = bd.get_component(&point.component_id) {
+                    self.draw_anchors(state, painter);
+                    let p1 = comp
+                        .get_connection_position(point.connection_id, state)
+                        .unwrap();
+                    let p1_1_grid = comp.get_connection_dock_cell(point.connection_id).unwrap();
+                    let mut points = vec![
+                        p1,
+                        state.grid_to_screen(&p1_1_grid)
                             + vec2(0.5 * state.grid_size, 0.5 * state.grid_size),
-                    );
-                    last_grid_p = a.clone();
-                });
-                if let Some(p2) = state.cursor_pos {
-                    points.extend(
-                        bd.find_net_path(
-                            state.screen_to_grid(points.last().unwrap().clone()),
-                            state.screen_to_grid(p2),
-                        )
-                        .iter()
-                        .map(|g| {
-                            state.grid_to_screen(&g)
-                                + vec2(state.grid_size * 0.5, state.grid_size * 0.5)
-                        }),
-                    );
-                    points.push(p2);
-                } else {
-                }
-                for i in 1..points.len() {
-                    if points[i - 1] != points[i] {
-                        // fixme
-                        painter.circle_filled(
-                            points[i],
-                            state.grid_size * 0.15,
-                            Color32::DARK_GRAY,
+                    ];
+                    let mut last_grid_p = p1_1_grid;
+                    anchors.iter().for_each(|a| {
+                        let path = bd.find_net_path(last_grid_p.clone(), a.clone());
+                        points.extend(path.iter().map(|t| {
+                            state.grid_to_screen(t)
+                                + vec2(0.5 * state.grid_size, 0.5 * state.grid_size)
+                        }));
+                        points.push(
+                            state.grid_to_screen(a)
+                                + vec2(0.5 * state.grid_size, 0.5 * state.grid_size),
                         );
-                        painter.line_segment(
-                            [points[i - 1], points[i]],
-                            Stroke::new(state.grid_size * 0.3, Color32::DARK_GRAY),
+                        last_grid_p = a.clone();
+                    });
+                    if let Some(p2) = state.cursor_pos {
+                        points.extend(
+                            bd.find_net_path(
+                                state.screen_to_grid(points.last().unwrap().clone()),
+                                state.screen_to_grid(p2),
+                            )
+                            .iter()
+                            .map(|g| {
+                                state.grid_to_screen(&g)
+                                    + vec2(state.grid_size * 0.5, state.grid_size * 0.5)
+                            }),
                         );
+                        points.push(p2);
+                    } else {
                     }
+                    for i in 1..points.len() {
+                        if points[i - 1] != points[i] {
+                            // fixme
+                            painter.circle_filled(
+                                points[i],
+                                state.grid_size * 0.15,
+                                painter.ctx().theme().get_stroke_color(),
+                            );
+                            painter.line_segment(
+                                [points[i - 1], points[i]],
+                                Stroke::new(
+                                    state.grid_size * 0.3,
+                                    painter.ctx().theme().get_stroke_color(),
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        match self.state {
+            ConnectionBuilderState::IDLE => false,
+            _ => true,
+        }
+    }
+}
+
+#[derive(Clone)]
+enum Transaction {
+    ChangeComponent {
+        comp_id: Id,
+        old_comp: Option<Component>,
+        new_comp: Option<Component>,
+    },
+    ChangeNet {
+        net_id: Id,
+        old_net: Option<Net>,
+        new_net: Option<Net>,
+    },
+    CombinedTransaction(LinkedList<Transaction>),
+}
+
+impl Transaction {
+    fn apply(&mut self, bd: &mut GridBD) {
+        match self {
+            Transaction::CombinedTransaction(sequence) => {
+                for t in sequence {
+                    t.apply(bd);
+                }
+            }
+            Transaction::ChangeComponent {
+                comp_id: id,
+                old_comp,
+                new_comp,
+            } => {
+                *old_comp = bd.remove_component(&id);
+                if let Some(inserting_comp) = std::mem::replace(new_comp, None) {
+                    bd.insert_component(*id, inserting_comp);
+                }
+            }
+
+            Transaction::ChangeNet {
+                net_id,
+                old_net,
+                new_net,
+            } => {
+                *old_net = bd.remove_net(&net_id);
+                if let Some(inserting_net) = std::mem::replace(new_net, None) {
+                    bd.insert_net(*net_id, inserting_net);
+                }
+            }
+        }
+    }
+
+    fn revert(&mut self, bd: &mut GridBD) {
+        match self {
+            Transaction::CombinedTransaction(sequence) => {
+                for t in sequence.iter_mut().rev() {
+                    t.revert(bd);
+                }
+            }
+            Transaction::ChangeComponent {
+                comp_id: id,
+                old_comp,
+                new_comp,
+            } => {
+                *new_comp = bd.remove_component(&id);
+                if let Some(inserting_comp) = std::mem::replace(old_comp, None) {
+                    bd.insert_component(*id, inserting_comp);
+                }
+            }
+            Transaction::ChangeNet {
+                net_id,
+                old_net,
+                new_net,
+            } => {
+                *new_net = bd.remove_net(&net_id);
+                if let Some(inserting_net) = std::mem::replace(old_net, None) {
+                    bd.insert_net(*net_id, inserting_net);
                 }
             }
         }
