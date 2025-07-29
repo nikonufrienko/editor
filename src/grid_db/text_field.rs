@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     field::FieldState,
-    grid_db::{ComponentAction, ComponentColor, GridPos},
+    grid_db::{ComponentAction, ComponentColor, GridPos, Rotation},
 };
 use egui::{
     Color32, FontId, Painter, Pos2, Rect, Shape, TextEdit, Theme, Ui, UiBuilder, epaint::TextShape,
@@ -33,6 +33,7 @@ impl TextField {
             state,
             &painter.with_clip_rect(rect),
             w as f32 * state.grid_size,
+            Rotation::ROT0,
         );
     }
 
@@ -59,12 +60,13 @@ impl TextField {
     }
 }
 
-fn show_text_with_debounce(
+pub fn show_text_with_debounce(
     pos: Pos2,
     text: String,
     state: &FieldState,
     painter: &Painter,
     width: f32,
+    rotation: Rotation,
 ) {
     let theme = painter.ctx().theme();
     if state.debounce {
@@ -78,11 +80,10 @@ fn show_text_with_debounce(
             )
         });
 
-        let mut shape = Shape::Text(TextShape::new(
-            pos2(0.0, 0.0),
-            galley,
-            theme.get_text_color(),
-        ));
+        let mut shape = Shape::Text(
+            TextShape::new(pos2(0.0, 0.0), galley, theme.get_text_color())
+                .with_angle(rotation.to_radians()),
+        );
         shape.scale(state.grid_size * TextField::FONT_SCALE / prev_font_size);
         shape.translate(pos.to_vec2());
         painter.add(shape);
@@ -97,7 +98,9 @@ fn show_text_with_debounce(
             )
         });
 
-        let shape = Shape::Text(TextShape::new(pos, galley, theme.get_text_color()));
+        let shape = Shape::Text(
+            TextShape::new(pos, galley, theme.get_text_color()).with_angle(rotation.to_radians()),
+        );
         painter.add(shape);
     }
 }
@@ -117,21 +120,14 @@ pub fn show_text_edit(
         Arc::new(style)
     } else {
         ui.ctx().style().clone()
-        /*
-        let mut style = (*ui.ctx().style()).clone();
-        style.visuals.selection.stroke.color = Color32::TRANSPARENT;
-        style.visuals.selection.stroke.color = Color32::TRANSPARENT;
-        style.visuals.widgets.hovered.fg_stroke.color = Color32::TRANSPARENT;
-        style.visuals.widgets.hovered.bg_stroke.color = Color32::TRANSPARENT;
-        style.visuals.widgets.active.fg_stroke.color = Color32::TRANSPARENT;
-        style.visuals.widgets.active.bg_stroke.color = Color32::TRANSPARENT;
-        Arc::new(style)
-        */
     };
     let ui_builder = UiBuilder::new().max_rect(text_edit_rect).style(style);
-    let bg_color = ui.ctx().theme().get_bg_color();
+    let bg_color = if state.debounce {
+        Color32::TRANSPARENT
+    } else {
+        ui.ctx().theme().get_bg_color()
+    };
     let font_size = state.grid_size * TextField::FONT_SCALE;
-    //ui.painter().rect_filled(text_edit_rect, 0.0, bg_color);
     ui.scope_builder(ui_builder, |ui| {
         egui::ScrollArea::vertical()
             .max_height(text_edit_rect.height())

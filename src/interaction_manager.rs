@@ -314,6 +314,23 @@ impl InteractionManager {
         }
     }
 
+    fn remove_component(&mut self, bd: &mut GridBD, comp_id: Id) {
+        let mut transactions = LinkedList::new();
+        for net_id in bd.get_connected_nets(&comp_id) {
+            transactions.push_back(Transaction::ChangeNet {
+                net_id: net_id,
+                old_net: None,
+                new_net: None,
+            });
+        }
+        transactions.push_back(Transaction::ChangeComponent {
+            comp_id: comp_id,
+            old_comp: None,
+            new_comp: None,
+        });
+        self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
+    }
+
     const UNDO_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::CTRL, egui::Key::Z);
     const REDO_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::CTRL, egui::Key::Y);
 
@@ -436,7 +453,7 @@ impl InteractionManager {
                 // Check actions:
                 let action = Self::get_action(comp, state);
                 if ui.input(|i| i.key_pressed(egui::Key::Delete)) {
-                    bd.remove_component_with_connected_nets(&id);
+                    self.remove_component(bd, *id);
                     self.state = InteractionState::Idle;
                     return true;
                 }
@@ -451,7 +468,7 @@ impl InteractionManager {
                             self.state = InteractionState::Idle;
                         }
                         ComponentAction::Remove => {
-                            bd.remove_component_with_connected_nets(&id);
+                            self.remove_component(bd, *id);
                             self.state = InteractionState::Idle;
                             return true;
                         }
@@ -549,7 +566,8 @@ impl InteractionManager {
                     if let Some(cursor_pos) = state.cursor_pos {
                         if !text_edit_rect.contains(cursor_pos) {
                             let mut new_comp = comp.clone();
-                            *(new_comp.get_text_edit_mut(*id).unwrap()) = text_buffer.clone();
+                            *(new_comp.get_text_edit_mut(*text_edit_id).unwrap()) =
+                                text_buffer.clone();
                             self.apply_new_transaction(
                                 Transaction::ChangeComponent {
                                     comp_id: *id,
@@ -691,6 +709,11 @@ impl InteractionManager {
             } => {
                 let comp = bd.get_component_mut(&id).unwrap();
                 let text_edit_rect = comp.get_text_edit_rect(*text_edit_id, state).unwrap();
+                painter.rect_filled(
+                    text_edit_rect,
+                    state.grid_size * 0.1,
+                    ui.ctx().theme().get_stroke_color().gamma_multiply_u8(127),
+                );
                 show_text_edit(text_edit_rect, text_buffer, state, ui);
             }
             _ => {}

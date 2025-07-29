@@ -1,4 +1,5 @@
-use std::f32::consts::TAU;
+use std::f32::consts::{FRAC_PI_2, TAU};
+use std::ops::Add;
 use std::{
     cell::{LazyCell, RefCell},
     f32::consts::PI,
@@ -15,7 +16,7 @@ use egui::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::grid_db::{ComponentColor, STROKE_SCALE};
+use crate::grid_db::{ComponentColor, STROKE_SCALE, show_text_with_debounce};
 use crate::{
     field::{Field, FieldState, SVG_DUMMY_STATE},
     grid_db::{svg_circle_filled, svg_line, svg_polygon, tesselate_polygon},
@@ -39,6 +40,15 @@ pub enum Rotation {
 }
 
 impl Rotation {
+    pub fn to_radians(&self) -> f32 {
+        match self {
+            Rotation::ROT0 => 0.0,
+            Rotation::ROT90 => FRAC_PI_2,
+            Rotation::ROT180 => PI,
+            Rotation::ROT270 => PI + FRAC_PI_2,
+        }
+    }
+
     pub fn rotated_up(&self) -> Rotation {
         match self {
             Rotation::ROT0 => Rotation::ROT90,
@@ -104,6 +114,32 @@ impl Rotation {
             Rotation::ROT180 => (w, h),
             Rotation::ROT270 => (h, w),
         }
+    }
+}
+
+impl Add for Rotation {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        fn to_u8(a: Rotation) -> u8 {
+            match a {
+                Rotation::ROT0 => 0,
+                Rotation::ROT90 => 1,
+                Rotation::ROT180 => 2,
+                Rotation::ROT270 => 3,
+            }
+        }
+
+        fn from_u8(a: u8) -> Rotation {
+            match a {
+                0 => Rotation::ROT0,
+                1 => Rotation::ROT90,
+                2 => Rotation::ROT180,
+                _ => Rotation::ROT270,
+            }
+        }
+
+        return from_u8((to_u8(self) + to_u8(rhs)) % 4);
     }
 }
 
@@ -255,6 +291,20 @@ impl PrimitiveComponent {
                 );
             });
         }
+
+        // Draw text labels:
+        if state.lod_level() == LodLevel::Max {
+            for (pos, text, rotation) in self.typ.get_text_labels() {
+                show_text_with_debounce(
+                    self.apply_rotation(pos * state.grid_size + screen_pos, state),
+                    text,
+                    state,
+                    painter,
+                    f32::MAX,
+                    rotation + self.rotation,
+                );
+            }
+        }
     }
 
     pub fn get_svg(&self, offset: GridPos, scale: f32, theme: Theme) -> String {
@@ -325,6 +375,9 @@ pub enum PrimitiveType {
     // Logic gates:
     Input,
     Output,
+
+    // DFF
+    DFF,
 }
 
 impl PrimitiveType {
@@ -921,6 +974,65 @@ impl PrimitiveType {
     }
 
     //
+    // *** DFF (D-type flip-flop) ***
+    //
+    const DFF_DIMENSION: (i32, i32) = (3, 5);
+    const DFF_N_CONNECTIONS: usize = 4;
+    fn get_dff_dock_cell_raw(connection_id: Id, primitive_pos: &GridPos) -> GridPos {
+        match connection_id {
+            // D:
+            0 => grid_pos(-1, 1) + *primitive_pos,
+            // clk:
+            1 => grid_pos(-1, 3) + *primitive_pos,
+            // rst:
+            2 => grid_pos(1, -1) + *primitive_pos,
+            // Q
+            3 => grid_pos(3, 2) + *primitive_pos,
+            _ => panic!("Wrong port"),
+        }
+    }
+
+    fn get_dff_polygons_points_raw() -> Vec<Vec<Pos2>> {
+        let (width, height) = Self::DFF_DIMENSION;
+        vec![
+            vec![
+                pos2(0.0, 0.0),
+                pos2(width as f32, 0.0),
+                pos2(width as f32, height as f32),
+                pos2(0.0, height as f32),
+            ],
+            vec![pos2(0.0, 3.0), pos2(1.0, 3.5), pos2(0.0, 4.0)],
+        ]
+    }
+
+    fn get_dff_connection_position_raw(connection_id: Id) -> Pos2 {
+        match connection_id {
+            // D:
+            0 => pos2(0.0, 1.5),
+            // clk:
+            1 => pos2(0.0, 3.5),
+            // rst:
+            2 => pos2(1.5, 0.0),
+            // Q
+            3 => pos2(3.0, 2.5),
+            _ => panic!("Wrong port"),
+        }
+    }
+
+    fn get_dff_text_fields() -> Vec<(Pos2, String, Rotation)> {
+        let (width, height) = Self::DFF_DIMENSION;
+        vec![
+            (pos2(0.3, 1.0), "D".into(), Rotation::ROT0),
+            (pos2(1.8, 0.2), "ARST".into(), Rotation::ROT90),
+            (
+                pos2(width as f32 - 0.7, height as f32 * 0.5 - 0.3),
+                "Q".into(),
+                Rotation::ROT0,
+            ),
+        ]
+    }
+
+    //
     // *** Common ***
     //
     pub fn get_connections_number(&self) -> usize {
@@ -930,6 +1042,7 @@ impl PrimitiveType {
             Self::Xor(n_inputs) => *n_inputs + 1,
             Self::Nand(n_inputs) => *n_inputs + 1,
             Self::Mux(n_inputs) => *n_inputs + 2,
+            Self::DFF => Self::DFF_N_CONNECTIONS,
             Self::Not => 2,
             Self::Input => 1,
             Self::Output => 1,
@@ -944,9 +1057,10 @@ impl PrimitiveType {
             Self::Xor(n_inputs) => Self::get_xor_gate_dimension_raw(*n_inputs),
             Self::Nand(n_inputs) => Self::get_nand_gate_dimension_raw(*n_inputs),
             Self::Not => (3, 3),
+            Self::Mux(n_inputs) => Self::get_mux_dimension_raw(*n_inputs),
+            Self::DFF => Self::DFF_DIMENSION,
             Self::Input => (2, 1),
             Self::Output => (2, 1),
-            Self::Mux(n_inputs) => Self::get_mux_dimension_raw(*n_inputs),
             Self::Point => (1, 1),
         }
     }
@@ -969,6 +1083,7 @@ impl PrimitiveType {
                 Self::get_mux_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
             }
             Self::Not => Self::get_not_dock_cell_raw(connection_id, primitive_pos),
+            Self::DFF => Self::get_dff_dock_cell_raw(connection_id, primitive_pos),
             Self::Input => Self::get_input_dock_cell_raw(primitive_pos),
             Self::Output => Self::get_output_dock_cell_raw(primitive_pos),
             Self::Point => *primitive_pos,
@@ -991,6 +1106,7 @@ impl PrimitiveType {
             }
             Self::Not => Self::get_not_connection_position_raw(connection_id),
             Self::Mux(n_inputs) => Self::get_mux_connection_position_raw(connection_id, *n_inputs),
+            Self::DFF => Self::get_dff_connection_position_raw(connection_id),
             Self::Input => Self::get_input_connection_position_raw(connection_id),
             Self::Output => Self::get_output_connection_position_raw(connection_id),
             Self::Point => pos2(0.5, 0.5),
@@ -1007,10 +1123,11 @@ impl PrimitiveType {
                 vec![Self::get_xor_gate_polygon_points_raw(*n_inputs, lod_level)]
             }
             Self::Nand(n_inputs) => Self::get_nand_gate_polygons_points_raw(*n_inputs, lod_level),
-            Self::Mux(n_inputs) => vec![Self::get_mux_polygon_points_raw(*n_inputs)],
             Self::Input => vec![Self::get_input_polygon_points_raw()],
             Self::Output => vec![Self::get_output_polygon_points_raw()],
             Self::Not => Self::get_not_polygons_points_raw(lod_level),
+            Self::Mux(n_inputs) => vec![Self::get_mux_polygon_points_raw(*n_inputs)],
+            Self::DFF => Self::get_dff_polygons_points_raw(),
             Self::Point => vec![],
         }
     }
@@ -1022,6 +1139,13 @@ impl PrimitiveType {
             Self::Nand(n_inputs) => Self::get_nand_gate_lines_raw(*n_inputs),
             Self::Output => Self::get_output_lines_raw(),
             Self::Not => Self::get_not_lines_raw(),
+            _ => vec![],
+        }
+    }
+
+    fn get_text_labels(&self) -> Vec<(Pos2, String, Rotation)> {
+        match self {
+            Self::DFF => Self::get_dff_text_fields(),
             _ => vec![],
         }
     }

@@ -71,12 +71,13 @@ pub fn grid_pos(x: i32, y: i32) -> GridPos {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[deprecated()] // TODO: Replace with Rotation
 pub enum ConnectionAlign {
     LEFT,
     RIGHT,
     TOP,
     BOTTOM,
-} // TODO: add custom
+}
 
 impl ConnectionAlign {
     pub(crate) fn grid_offset(&self) -> Vec2 {

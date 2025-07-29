@@ -164,6 +164,17 @@ fn get_units_examples() -> Vec<ComponentLibEntry> {
     }]
 }
 
+fn get_flip_flops() -> Vec<ComponentLibEntry> {
+    vec![ComponentLibEntry {
+        name: "DFF",
+        component: Component::Primitive(PrimitiveComponent {
+            typ: PrimitiveType::DFF,
+            pos: grid_pos(1, 1), // Default preview pos
+            rotation: crate::grid_db::Rotation::ROT0,
+        }),
+    }]
+}
+
 fn get_text_labels() -> Vec<ComponentLibEntry> {
     vec![ComponentLibEntry {
         name: "Text field",
@@ -181,6 +192,7 @@ pub fn get_component_lib() -> Vec<Vec<ComponentLibEntry>> {
         get_muxes(),
         get_io(),
         get_units_examples(),
+        get_flip_flops(),
         get_text_labels(),
     ]
 }
@@ -213,7 +225,8 @@ pub fn get_group_name(group_id: usize, locale: &Locale) -> &'static str {
         1 => locale.muxes,
         2 => locale.input_outputs,
         3 => locale.custom_units,
-        4 => locale.text_labels,
+        4 => locale.flip_flops,
+        5 => locale.text_labels,
         _ => "",
     }
 }

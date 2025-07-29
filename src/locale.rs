@@ -4,28 +4,30 @@ use sys_locale::get_locale;
 #[allow(unused)]
 pub struct Locale {
     pub locale_name: &'static str,
-    pub file: &'static str,
-    pub save: &'static str,
-    pub open: &'static str,
-    pub file_save_error: &'static str,
+
     pub grid: &'static str,
-    pub view: &'static str,
+    // Grid types:
     pub cells: &'static str,
     pub dots: &'static str,
     pub empty: &'static str,
-    pub language: &'static str,
-    pub components: &'static str,
-    pub saving_file: &'static str,
-    pub opening_file: &'static str,
-    pub file_load_error: &'static str,
-    pub file_wrong_format: &'static str,
-    pub file_hovered_message: &'static str,
+
+    // Component types:
     pub common_components: &'static str,
-    pub filter: &'static str,
     pub logic_gates: &'static str,
     pub muxes: &'static str,
     pub input_outputs: &'static str,
     pub custom_units: &'static str,
+    pub flip_flops: &'static str,
+
+    // UI:
+    pub file: &'static str,
+    pub save: &'static str,
+    pub open: &'static str,
+    pub file_save_error: &'static str,
+    pub view: &'static str,
+    pub language: &'static str,
+    pub components: &'static str,
+    pub filter: &'static str,
     pub export_to_svg: &'static str,
     pub ongoing_export_to_svg: &'static str,
     pub help: &'static str,
@@ -36,7 +38,14 @@ pub struct Locale {
     pub theme_light: &'static str,
     pub text_labels: &'static str,
     pub cell_size: &'static str,
+
+    // Modal dialogs:
     pub illegal_cell_size: &'static str,
+    pub saving_file: &'static str,
+    pub opening_file: &'static str,
+    pub file_load_error: &'static str,
+    pub file_wrong_format: &'static str,
+    pub file_hovered_message: &'static str,
 }
 
 pub const RU_LOCALE: Locale = Locale {
@@ -63,6 +72,7 @@ pub const RU_LOCALE: Locale = Locale {
     muxes: "Мультиплексоры",
     input_outputs: "Входы/выходы",
     custom_units: "Кастомизируемые блоки",
+    flip_flops: "Триггеры",
     export_to_svg: "Экспорт в SVG",
     ongoing_export_to_svg: "Идет экспорт в SVG...",
     help: "Помощь",
@@ -100,6 +110,7 @@ pub const EN_LOCALE: Locale = Locale {
     muxes: "Muxes",
     input_outputs: "I/O",
     custom_units: "Custom units",
+    flip_flops: "Flip-flops",
     export_to_svg: "Export to SVG",
     ongoing_export_to_svg: "Exporting to svg...",
     help: "Help",

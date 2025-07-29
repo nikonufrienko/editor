@@ -250,13 +250,6 @@ impl GridBD {
         None
     }
 
-    pub fn remove_component_with_connected_nets(&mut self, component_id: &Id) {
-        for net_id in self.get_connected_nets(component_id) {
-            self.remove_net(&net_id);
-        }
-        self.remove_component(component_id);
-    }
-
     pub fn get_hovered_segment(&self, state: &FieldState) -> Option<&NetSegment> {
         let cell = state.screen_to_grid(state.cursor_pos?);
         let segments = self
