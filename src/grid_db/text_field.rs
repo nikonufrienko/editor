@@ -5,8 +5,7 @@ use crate::{
     grid_db::{ComponentAction, ComponentColor, GridPos, Rotation},
 };
 use egui::{
-    Color32, FontId, Painter, Pos2, Rect, Shape, TextEdit, Theme, Ui, UiBuilder, epaint::TextShape,
-    pos2, vec2,
+    epaint::TextShape, pos2, vec2, Align2, Color32, FontId, Painter, Pos2, Rect, Shape, TextEdit, Theme, Ui, UiBuilder, Vec2
 };
 use serde::{Deserialize, Serialize};
 
@@ -18,7 +17,7 @@ pub struct TextField {
 }
 
 impl TextField {
-    pub const ACTIONS: &'static [ComponentAction] = &[ComponentAction::Remove];
+    pub const ACTIONS: &'static [ComponentAction] = &[ComponentAction::EditText, ComponentAction::Remove];
     pub const FONT_SCALE: f32 = 0.5;
     pub fn display(&self, state: &FieldState, painter: &Painter) {
         let screen_pos = state.grid_to_screen(&self.pos);
@@ -32,8 +31,9 @@ impl TextField {
             self.text.clone(),
             state,
             &painter.with_clip_rect(rect),
-            w as f32 * state.grid_size,
+            Some(w as f32 * state.grid_size),
             Rotation::ROT0,
+            Align2::LEFT_TOP
         );
     }
 
@@ -60,46 +60,97 @@ impl TextField {
     }
 }
 
+
 pub fn show_text_with_debounce(
     pos: Pos2,
     text: String,
     state: &FieldState,
     painter: &Painter,
-    width: f32,
+    wrap_width: Option<f32>,
     rotation: Rotation,
+    anchor: Align2,
 ) {
     let theme = painter.ctx().theme();
+    let color = theme.get_text_color();
+
+    // Рассчитываем факторы выравнивания
+    let align_x = anchor.x().to_factor();
+    let align_y = anchor.y().to_factor();
+    let align_factor = vec2(align_x, align_y);
+
+    // Функция для расчета смещения при повороте
+    let rotated_offset = |size: Vec2, rotation: Rotation| -> Vec2 {
+        match rotation {
+            Rotation::ROT0 => vec2(align_factor.x * size.x, align_factor.y * size.y),
+            Rotation::ROT90 => vec2(-align_factor.y * size.y, align_factor.x * size.x),
+            Rotation::ROT180 => vec2(-align_factor.x * size.x, -align_factor.y * size.y),
+            Rotation::ROT270 => vec2(align_factor.y * size.y, align_factor.x * size.x),
+        }
+    };
+
     if state.debounce {
         let prev_font_size = 64.0;
+        let scale = state.grid_size * TextField::FONT_SCALE / prev_font_size;
+
         let galley = painter.fonts(|fonts| {
-            fonts.layout(
-                text,
-                FontId::monospace(prev_font_size),
-                theme.get_text_color(),
-                width / (state.grid_size * TextField::FONT_SCALE / prev_font_size),
-            )
+            if let Some(wrap) = wrap_width {
+                let scaled_wrap = wrap / scale;
+                fonts.layout(
+                    text.clone(),
+                    FontId::monospace(prev_font_size),
+                    color,
+                    scaled_wrap,
+                )
+            } else {
+                fonts.layout_no_wrap(
+                    text.clone(),
+                    FontId::monospace(prev_font_size),
+                    color,
+                )
+            }
         });
+
+        // Финальный размер после масштабирования
+        let final_size = galley.size() * scale;
+        // Смещение с учетом поворота
+        let offset = rotated_offset(final_size, rotation);
+        let aligned_pos = pos - offset;
 
         let mut shape = Shape::Text(
-            TextShape::new(pos2(0.0, 0.0), galley, theme.get_text_color())
-                .with_angle(rotation.to_radians()),
+            TextShape::new(pos2(0.0, 0.0), galley, color)
+                .with_angle(rotation.to_radians())
         );
-        shape.scale(state.grid_size * TextField::FONT_SCALE / prev_font_size);
-        shape.translate(pos.to_vec2());
+        shape.scale(scale);
+        shape.translate(aligned_pos.to_vec2());
         painter.add(shape);
-        painter.ctx().request_repaint(); // To apply debounce
+        painter.ctx().request_repaint();
     } else {
+        let font_size = state.grid_size * TextField::FONT_SCALE;
+
         let galley = painter.fonts(|fonts| {
-            fonts.layout(
-                text,
-                FontId::monospace(state.grid_size * TextField::FONT_SCALE),
-                theme.get_text_color(),
-                width,
-            )
+            if let Some(wrap) = wrap_width {
+                fonts.layout(
+                    text.clone(),
+                    FontId::monospace(font_size),
+                    color,
+                    wrap,
+                )
+            } else {
+                fonts.layout_no_wrap(
+                    text.clone(),
+                    FontId::monospace(font_size),
+                    color,
+                )
+            }
         });
 
+        // Смещение с учетом поворота
+        let offset = rotated_offset(galley.size(), rotation);
+        let aligned_pos = pos - offset;
+
         let shape = Shape::Text(
-            TextShape::new(pos, galley, theme.get_text_color()).with_angle(rotation.to_radians()),
+            TextShape::new(aligned_pos, galley, color)
+                .with_angle(rotation.to_radians())
         );
         painter.add(shape);
     }
@@ -107,6 +158,7 @@ pub fn show_text_with_debounce(
 
 pub fn show_text_edit(
     text_edit_rect: Rect,
+    single_line: bool,
     edit_buffer: &mut String,
     state: &FieldState,
     ui: &mut Ui,
@@ -130,19 +182,23 @@ pub fn show_text_edit(
     let font_size = state.grid_size * TextField::FONT_SCALE;
     ui.scope_builder(ui_builder, |ui| {
         egui::ScrollArea::vertical()
-            .max_height(text_edit_rect.height())
+            .auto_shrink(true)
             .show(ui, |ui| {
-                TextEdit::multiline(edit_buffer)
-                    .background_color(bg_color)
-                    .desired_width(text_edit_rect.width())
-                    .desired_rows(1)
-                    .text_color(if state.debounce {
-                        Color32::TRANSPARENT
-                    } else {
-                        ui.ctx().theme().get_text_color()
-                    })
-                    .font(egui::FontId::monospace(font_size))
-                    .show(ui);
+                if single_line {
+                    TextEdit::singleline(edit_buffer)
+                } else {
+                    TextEdit::multiline(edit_buffer)
+                }
+                .background_color(bg_color)
+                .desired_width(text_edit_rect.width())
+                .desired_rows(1)
+                .text_color(if state.debounce {
+                    Color32::TRANSPARENT
+                } else {
+                    ui.ctx().theme().get_text_color()
+                })
+                .font(egui::FontId::monospace(font_size))
+                .show(ui);
             });
         if state.debounce {
             ui.ctx().request_repaint();

@@ -249,6 +249,9 @@ impl Field {
         let delta_vec = allocated_rect.min - self.state.rect.min;
         self.state.offset -= delta_vec;
         self.state.rect = allocated_rect;
+        let ongoing_interaction =
+            self.interaction_manager
+                .refresh(&mut self.grid_db, &self.state, response, ui);
         if response.hovered() {
             let zoom_delta = ui.input(|i| i.zoom_delta());
             let new_scale = (self.state.scale * zoom_delta).clamp(Self::MIN_SCALE, Self::MAX_SCALE);
@@ -277,10 +280,7 @@ impl Field {
                 self.state.label_visible = label_text_size > Self::MIN_DISPLAY_TEXT_SIZE;
                 self.state.label_font = FontId::monospace(label_text_size);
             }
-            if !self
-                .interaction_manager
-                .refresh(&mut self.grid_db, &self.state, response, ui)
-            {
+            if !ongoing_interaction {
                 if response.dragged() {
                     self.state.offset += response.drag_delta();
                     ui.ctx()

@@ -206,6 +206,7 @@ impl FileManager {
     fn execute<F: Future<Output = ()> + Send + 'static>(f: F) {
         smol::spawn(f).detach();
     }
+
     #[cfg(target_arch = "wasm32")]
     fn execute<F: Future<Output = ()> + 'static>(f: F) {
         wasm_bindgen_futures::spawn_local(f);
@@ -231,6 +232,39 @@ impl FileManager {
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
+    fn save_file_wasm(default_file_name: String, content: String) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            use eframe::wasm_bindgen::JsCast;
+            use web_sys::{Blob, Url};
+
+            let blob =
+                Blob::new_with_str_sequence(&js_sys::Array::of1(&js_sys::JsString::from(content)))
+                    .unwrap();
+
+            let url = Url::create_object_url_with_blob(&blob).unwrap();
+
+            let window = web_sys::window().unwrap();
+            let document = window.document().unwrap();
+            let a = document
+                .create_element("a")
+                .unwrap()
+                .dyn_into::<web_sys::HtmlAnchorElement>()
+                .unwrap();
+
+            a.set_download(&default_file_name);
+            a.set_href(&url);
+            //a.set_style("display", "none");
+
+            document.body().unwrap().append_child(&a).unwrap();
+            a.click();
+            document.body().unwrap().remove_child(&a).unwrap();
+
+            Url::revoke_object_url(&url).unwrap();
+        }
+    }
+
     pub fn save_file(&mut self, bd: &GridBD, file_name: &String) {
         if let Some(data) = bd.dump_to_json() {
             self.state = FileManagerState::SaveFile;
@@ -251,35 +285,8 @@ impl FileManager {
                 });
             }
             #[cfg(target_arch = "wasm32")]
-            {
-                use eframe::wasm_bindgen::JsCast;
-                use web_sys::{Blob, Url};
-
-                let blob =
-                    Blob::new_with_str_sequence(&js_sys::Array::of1(&js_sys::JsString::from(data)))
-                        .unwrap();
-
-                let url = Url::create_object_url_with_blob(&blob).unwrap();
-
-                let window = web_sys::window().unwrap();
-                let document = window.document().unwrap();
-                let a = document
-                    .create_element("a")
-                    .unwrap()
-                    .dyn_into::<web_sys::HtmlAnchorElement>()
-                    .unwrap();
-
-                a.set_download(&default_file_name);
-                a.set_href(&url);
-                //a.set_style("display", "none");
-
-                document.body().unwrap().append_child(&a).unwrap();
-                a.click();
-                document.body().unwrap().remove_child(&a).unwrap();
-
-                Url::revoke_object_url(&url).unwrap();
-                self.done.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
+            Self::save_file_wasm(default_file_name, data);
+            self.done.store(true, std::sync::atomic::Ordering::Relaxed);
         } else {
             // self.errors.lock().push(error_msg.into());
         }
@@ -295,10 +302,9 @@ impl FileManager {
     fn export_to_svg(&mut self, bd: &GridBD, file_name: &String, theme: Theme, grid_size: f32) {
         self.state = FileManagerState::ExportSVG;
         let default_file_name = format!("{file_name}.svg");
+        let data = bd.dump_to_svg(theme, grid_size);
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let bd_arc = Arc::new(bd);
-            let data = bd_arc.dump_to_svg(theme, grid_size);
             let arc = self.done.clone().clone();
             Self::execute(async move {
                 if let Some(file) = rfd::AsyncFileDialog::new()
@@ -311,6 +317,13 @@ impl FileManager {
                 arc.store(true, std::sync::atomic::Ordering::Relaxed);
             });
         }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Self::save_file_wasm(default_file_name, data);
+            self.done.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        // TODO: move to preview_svg
+        /*
         #[cfg(target_arch = "wasm32")]
         {
             let data = bd.dump_to_svg(theme, grid_size);
@@ -355,6 +368,6 @@ impl FileManager {
             }
 
             self.done.store(true, std::sync::atomic::Ordering::Relaxed);
-        }
+        } */
     }
 }

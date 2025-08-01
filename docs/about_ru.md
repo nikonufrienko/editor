@@ -23,9 +23,8 @@
     - [ ] NOR
     - [x] MUX
     - [x] POINT
-    - [ ] DFF_S_RST_N (D-type flip-flop with synchronous reset_n)
-    - [ ] DFF_A_RST_N (D-type flip-flop with asynchronous reset_n)
-    - [x] TEXT LABEL
+    - [x] D-type flip-flops
+    - [x] TEXT_FIELD
 * [ ] Добавить настройку параметризации компонентов.
 * Добавить экспорт в SVG:
     - [x] Для соединений (Net).

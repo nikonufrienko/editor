@@ -1,11 +1,12 @@
 use std::{
-    f32::consts::{FRAC_PI_2, PI},
+    f32::consts::{PI},
     ops::{Add, AddAssign},
+    vec,
 };
 
 use egui::{
-    Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Theme, Vec2,
-    epaint::{PathShape, PathStroke, TextShape},
+    Align2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Theme, Vec2,
+    epaint::{PathShape, PathStroke},
     pos2, vec2,
 };
 use serde::{Deserialize, Serialize};
@@ -14,8 +15,7 @@ use serde_with::serde_as;
 use crate::{
     field::{Field, FieldState, SVG_DUMMY_STATE},
     grid_db::{
-        ComponentColor, GridBD, GridBDConnectionPoint, GridRect, Id, PrimitiveType, TextField,
-        grid_rect, mesh_line, svg_line,
+        grid_rect, mesh_line, show_text_with_debounce, svg_circle_filled, svg_line, svg_rect, svg_single_line_text, ComponentColor, GridBD, GridBDConnectionPoint, GridRect, Id, LodLevel, PrimitiveType, Rotation, TextField, STROKE_SCALE
     },
 };
 
@@ -70,41 +70,29 @@ pub fn grid_pos(x: i32, y: i32) -> GridPos {
     GridPos { x, y }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[deprecated()] // TODO: Replace with Rotation
-pub enum ConnectionAlign {
-    LEFT,
-    RIGHT,
-    TOP,
-    BOTTOM,
+trait TextAlignment {
+    fn to_text_rotation(&self) -> Self;
+    fn to_text_align2(&self) -> Align2;
 }
 
-impl ConnectionAlign {
-    pub(crate) fn grid_offset(&self) -> Vec2 {
+impl TextAlignment for Rotation {
+    fn to_text_rotation(&self) -> Self {
         match self {
-            Self::LEFT => vec2(0.0, 0.5),
-            Self::RIGHT => vec2(1.0, 0.5),
-            Self::TOP => vec2(0.5, 0.0),
-            Self::BOTTOM => vec2(0.5, 1.0),
+            Self::ROT0 => Self::ROT0,
+            Self::ROT90 => Self::ROT90,
+            Self::ROT180 => Self::ROT0,
+            Self::ROT270 => Self::ROT90,
         }
     }
 
-    pub(crate) fn rotation_angle(&self) -> f32 {
+    fn to_text_align2(&self) -> Align2 {
         match self {
-            Self::LEFT => 0.0,
-            Self::RIGHT => 0.0,
-            Self::TOP => FRAC_PI_2,
-            Self::BOTTOM => -FRAC_PI_2,
+            Self::ROT0 => Align2::LEFT_CENTER,
+            Self::ROT90 => Align2::LEFT_CENTER,
+            Self::ROT180 => Align2::RIGHT_CENTER,
+            Self::ROT270 => Align2::RIGHT_CENTER,
         }
     }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Port {
-    // Connection
-    pub cell: GridPos,
-    pub align: ConnectionAlign,
-    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,7 +104,6 @@ pub struct Net {
 
 impl Net {
     pub fn get_segments(&self, net_id: Id) -> Vec<NetSegment> {
-        // TODO: return iterator?
         let mut result = vec![];
         for i in 0..self.points.len() - 1 {
             result.push(NetSegment::new(
@@ -180,7 +167,6 @@ impl Net {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Unit {
-    pub name: String,
     pub pos: GridPos,
     pub width: i32,
     pub height: i32,
@@ -188,31 +174,131 @@ pub struct Unit {
 }
 
 impl Unit {
-    const ACTIONS: &'static [ComponentAction] = &[ComponentAction::Remove];
+    const ACTIONS: &'static [ComponentAction] = &[
+        ComponentAction::AddPort,
+        ComponentAction::EditPort,
+        ComponentAction::RemovePort,
+        ComponentAction::Remove,
+    ];
 
     pub fn display(&self, state: &FieldState, painter: &Painter, theme: Theme) {
         let fill_color = theme.get_fill_color();
-        let stroke_color = theme.get_stroke_color();
         let rect = Rect::from_min_size(
-            state.grid_to_screen(&self.pos),
+            state.grid_to_screen(&self.pos) + vec2(0.05, 0.05) * state.grid_size,
             vec2(
-                state.grid_size * self.width as f32,
-                state.grid_size * self.height as f32,
+                state.grid_size * (self.width as f32 - 0.1),
+                state.grid_size * (self.height as f32 - 0.1),
             ),
         );
-        painter.rect_filled(rect, 0.5 * state.scale, fill_color);
+        painter.rect(
+            rect,
+            0.5 * state.scale,
+            fill_color,
+            theme.get_stroke(state),
+            StrokeKind::Middle,
+        );
 
         if state.scale > Field::LOD_LEVEL_MIN_SCALE {
-            painter.rect_stroke(
-                rect,
-                0.5 * state.scale,
-                Stroke::new(1.0 * state.scale, stroke_color),
-                StrokeKind::Outside,
-            );
             for port in &self.ports {
-                port.display(&self.pos, state, &painter, theme);
+                port.display(&self.pos, (self.width, self.height), state, &painter, theme);
             }
         }
+    }
+
+    fn resize(&mut self, size: (i32, i32)) {
+        let mut min_w = 1;
+        let mut min_h = 1;
+        for Port {
+            align,
+            offset,
+            name: _name,
+        } in &self.ports
+        {
+            if [Rotation::ROT0, Rotation::ROT180].contains(align) && offset + 1 > min_h {
+                min_h = *offset + 1;
+            }
+            if [Rotation::ROT270, Rotation::ROT90].contains(align) && offset + 1 > min_w {
+                min_w = *offset + 1;
+            }
+        }
+        (self.width, self.height) = (size.0.max(min_w), size.1.max(min_h));
+    }
+
+    fn get_nearest_port_pos(
+        &self,
+        state: &FieldState,
+        used: bool,
+    ) -> Option<(Rotation, i32, Option<Id>)> {
+        let (w, h) = (self.width, self.height);
+        let grid_pos = self.pos;
+        let rect = Rect::from_min_size(
+            state.grid_to_screen(&grid_pos),
+            vec2(w as f32 * state.grid_size, h as f32 * state.grid_size),
+        );
+        if let Some(cursor_pos) = state.cursor_pos {
+            if rect.contains(cursor_pos) {
+                let Pos2 { x, y } = cursor_pos;
+                let GridPos {
+                    x: grid_x,
+                    y: grid_y,
+                } = state.screen_to_grid(cursor_pos);
+                let distances = [
+                    x - rect.left(),
+                    rect.right() - x,
+                    rect.bottom() - y,
+                    y - rect.top(),
+                ];
+                let (rotation, offset) = match distances
+                    .iter()
+                    .enumerate()
+                    .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                    .unwrap()
+                    .0
+                {
+                    0 => (Rotation::ROT0, grid_y - grid_pos.y),
+                    1 => (Rotation::ROT180, grid_y - grid_pos.y),
+                    2 => (Rotation::ROT270, grid_x - grid_pos.x),
+                    3 => (Rotation::ROT90, grid_x - grid_pos.x),
+                    _ => panic!(),
+                };
+                for (id, port) in self.ports.iter().enumerate() {
+                    if port.align == rotation && port.offset == offset {
+                        if used {
+                            return Some((rotation, offset, Some(id)));
+                        } else {
+                            return None;
+                        }
+                    }
+                }
+                if !used {
+                    return Some((rotation, offset, None));
+                }
+            }
+        }
+
+        None
+    }
+
+    fn to_svg(&self, offset: GridPos, scale: f32, theme: Theme) -> String {
+        let pos = self.pos + offset;
+        let mut result = String::new();
+        result += &svg_rect(pos2(pos.x as f32 * scale, pos.y as f32 * scale), (self.width as f32 * scale, self.height as f32 * scale), STROKE_SCALE * scale, theme);
+        result += &"\n";
+        for port in &self.ports {
+            let center: Pos2 = (port.center(&self.pos, (self.width, self.height), &SVG_DUMMY_STATE) + vec2(offset.x as f32, offset.y as f32)) * scale;
+            result += &svg_circle_filled(center, 0.1 * scale, theme.get_stroke_color());
+            result += &"\n";
+        }
+        for p in &self.ports {
+            let cell = p.get_cell(&self.pos, (self.width, self.height)) + offset;
+            let text_pos = pos2(cell.x as f32 * scale, cell.y as f32 * scale) + vec2(0.5, 0.5) * scale;
+            result += &svg_single_line_text(p.name.clone(), text_pos, 0.5 * scale,
+            p.align.to_text_rotation()
+            , theme,
+            p.align.to_text_align2()
+            );
+        }
+        result
     }
 }
 
@@ -255,7 +341,7 @@ impl Component {
                 .ports
                 .iter()
                 .enumerate()
-                .map(|(_i, p)| p.get_dock_cell(&unit.pos))
+                .map(|(_i, p)| p.get_dock_cell(&unit.pos, (unit.width, unit.height)))
                 .collect(),
             Component::Primitive(g) => (0..g.typ.get_connections_number())
                 .map(|i| g.get_connection_dock_cell(i).unwrap())
@@ -340,7 +426,7 @@ impl Component {
         match self {
             Component::Unit(unit) => {
                 if let Some(p) = unit.ports.get(connection_id) {
-                    p.highlight(state, &unit.pos, painter);
+                    p.highlight(state, &unit.pos, (unit.width, unit.height), painter);
                 }
             }
             Component::Primitive(g) => {
@@ -354,7 +440,7 @@ impl Component {
         match self {
             Component::Unit(unit) => {
                 let p = unit.ports.get(connection_id)?;
-                Some(p.center(&unit.pos, state))
+                Some(p.center(&unit.pos, (unit.width, unit.height), state))
             }
             Component::Primitive(g) => g.get_connection_position(connection_id, state),
             _ => None,
@@ -365,7 +451,7 @@ impl Component {
         match self {
             Component::Unit(unit) => {
                 let p = unit.ports.get(connection_id)?;
-                Some(p.get_dock_cell(&unit.pos))
+                Some(p.get_dock_cell(&unit.pos, (unit.width, unit.height)))
             }
             Component::Primitive(g) => g.get_connection_dock_cell(connection_id),
             _ => None,
@@ -377,7 +463,7 @@ impl Component {
             Component::Unit(unit) => unit
                 .ports
                 .get(connection_id)
-                .is_some_and(|p| p.is_hovered(state, &unit.pos)),
+                .is_some_and(|p| p.is_hovered(state, &unit.pos, (unit.width, unit.height))),
             Component::Primitive(g) => g.is_connection_hovered(connection_id, state),
             _ => false,
         }
@@ -387,7 +473,7 @@ impl Component {
         match self {
             Component::Primitive(g) => g.get_svg(offset, scale, theme),
             Component::TextField(f) => f.get_svg(offset, scale, theme),
-            _ => "".into(), // TODO: fixme
+            Component::Unit(u) => u.to_svg(offset, scale, theme),
         }
     }
 
@@ -407,6 +493,7 @@ impl Component {
     pub fn is_resizable(&self) -> bool {
         match self {
             Component::TextField(_f) => true,
+            Component::Unit(_u) => true,
             _ => false,
         }
     }
@@ -415,15 +502,15 @@ impl Component {
     pub fn set_size(&mut self, size: (i32, i32)) {
         match self {
             Component::TextField(f) => f.size = size,
+            Component::Unit(u) => u.resize(size),
             _ => {}
         }
     }
 
-    /// Returns id of hovered text edit field
-    pub fn get_hovered_text_edit_id(&self) -> Option<Id> {
+    pub fn is_single_line_text_edit(&self) -> bool {
         match self {
-            Component::TextField(_f) => Some(0),
-            _ => None,
+            Component::Unit(_u) => true,
+            _ => false,
         }
     }
 
@@ -437,6 +524,7 @@ impl Component {
                     None
                 }
             }
+            Component::Unit(u) => Some(&u.ports.get(id)?.name),
             _ => None,
         }
     }
@@ -451,6 +539,7 @@ impl Component {
                     None
                 }
             }
+            Component::Unit(u) => Some(&mut u.ports.get_mut(id)?.name),
             _ => None,
         }
     }
@@ -468,85 +557,135 @@ impl Component {
                     None
                 }
             }
+            Component::Unit(u) => {
+                let port = u.ports.get(id)?;
+                let mut pos = state.grid_to_screen(&port.get_cell(&u.pos, (u.width, u.height)));
+                let w = state.grid_size * u.width as f32 * 0.5;
+                match port.align {
+                    Rotation::ROT180 => pos -= vec2(w, 0.0),
+                    _ => {}
+                }
+                return Some(Rect::from_min_size(pos, vec2(w, state.grid_size)));
+            }
             _ => None,
         }
     }
+
+    pub fn get_nearest_port_pos(
+        &self,
+        state: &FieldState,
+        used: bool,
+    ) -> Option<(Rotation, i32, Option<Id>)> {
+        match self {
+            Component::Unit(u) => u.get_nearest_port_pos(state, used),
+            _ => None,
+        }
+    }
+
+    pub fn add_port(&mut self, port: Port) {
+        match self {
+            Component::Unit(u) => u.ports.push(port),
+            _ => panic!("Can't add port"),
+        }
+    }
+
+    pub fn remove_port(&mut self, id: Id) -> Port {
+        match self {
+            Component::Unit(u) => u.ports.remove(id),
+            _ => panic!("Can't remove port"),
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Port {
+    // Connection
+    pub offset: i32,
+    pub align: Rotation,
+    pub name: String,
 }
 
 impl Port {
     const PORT_SCALE: f32 = 0.1;
 
-    pub fn center(&self, unit_pos: &GridPos, state: &FieldState) -> Pos2 {
-        state.grid_to_screen(&GridPos {
-            x: unit_pos.x + self.cell.x,
-            y: unit_pos.y + self.cell.y,
-        }) + self.align.grid_offset() * state.grid_size
-    }
-
-    pub fn get_dock_cell(&self, unit_pos: &GridPos) -> GridPos {
-        self.cell
-            + unit_pos.clone()
-            + match self.align {
-                ConnectionAlign::BOTTOM => grid_pos(0, 1),
-                ConnectionAlign::TOP => grid_pos(0, -1),
-                ConnectionAlign::LEFT => grid_pos(-1, 0),
-                ConnectionAlign::RIGHT => grid_pos(1, 0),
+    pub fn center(
+        &self,
+        unit_pos: &GridPos,
+        (width, height): (i32, i32),
+        state: &FieldState,
+    ) -> Pos2 {
+        match self.align {
+            Rotation::ROT0 => {
+                state.grid_to_screen(&grid_pos(unit_pos.x, unit_pos.y + self.offset))
+                    + vec2(0.0, 0.5 * state.grid_size)
             }
-    }
-
-    pub fn display(&self, unit_pos: &GridPos, state: &FieldState, painter: &Painter, theme: Theme) {
-        let fill_color = theme.get_fill_color();
-        let stroke_color = theme.get_stroke_color();
-        let text_color = theme.get_text_color();
-        let angle = self.align.rotation_angle();
-        let pos = self.center(unit_pos, state);
-        painter.circle_filled(pos, state.grid_size * Self::PORT_SCALE, fill_color);
-        painter.circle_stroke(
-            pos,
-            state.grid_size * Self::PORT_SCALE,
-            Stroke::new(1.0 * state.scale, stroke_color),
-        );
-        if state.label_visible {
-            let galley = painter.fonts(|fonts| {
-                fonts.layout_no_wrap(self.name.clone(), state.label_font.clone(), text_color)
-            });
-            let label_rect = galley.rect;
-
-            let mut text_pos = state.grid_to_screen(&GridPos {
-                x: unit_pos.x + self.cell.x,
-                y: unit_pos.y + self.cell.y,
-            });
-            match self.align {
-                ConnectionAlign::LEFT => {
-                    text_pos.y += state.grid_size / 2.0 - label_rect.height() / 2.0;
-                    text_pos.x += state.grid_size * 0.5;
-                    // TODO:
-                }
-                ConnectionAlign::RIGHT => {
-                    text_pos.y += state.grid_size / 2.0 - label_rect.height() / 2.0;
-                    text_pos.x -= label_rect.width() - state.grid_size * 0.5;
-                }
-                ConnectionAlign::TOP => {
-                    text_pos.x += (state.grid_size + label_rect.width() / 2.0) / 2.0;
-                    text_pos.y += state.grid_size * 0.5;
-                }
-                ConnectionAlign::BOTTOM => {}
+            Rotation::ROT90 => {
+                state.grid_to_screen(&grid_pos(unit_pos.x + self.offset, unit_pos.y))
+                    + vec2(0.5 * state.grid_size, 0.0)
             }
-            painter.add(TextShape::new(text_pos, galley, text_color).with_angle(angle));
+            Rotation::ROT180 => {
+                state.grid_to_screen(&grid_pos(unit_pos.x + width, unit_pos.y + self.offset))
+                    + vec2(0.0, 0.5 * state.grid_size)
+            }
+            Rotation::ROT270 => {
+                state.grid_to_screen(&grid_pos(unit_pos.x + self.offset, unit_pos.y + height))
+                    + vec2(0.5 * state.grid_size, 0.0)
+            }
         }
     }
 
-    pub fn is_hovered(&self, state: &FieldState, unit_pos: &GridPos) -> bool {
+    pub fn get_dock_cell(&self, unit_pos: &GridPos, (width, height): (i32, i32)) -> GridPos {
+        match self.align {
+            Rotation::ROT0 => grid_pos(unit_pos.x - 1, unit_pos.y + self.offset),
+            Rotation::ROT90 => grid_pos(unit_pos.x + self.offset, unit_pos.y - 1),
+            Rotation::ROT180 => grid_pos(unit_pos.x + width, unit_pos.y + self.offset),
+            Rotation::ROT270 => grid_pos(unit_pos.x + self.offset, unit_pos.y + height),
+        }
+    }
+
+    fn get_cell(&self, unit_pos: &GridPos, (width, height): (i32, i32)) -> GridPos {
+        match self.align {
+            Rotation::ROT0 => grid_pos(unit_pos.x, unit_pos.y + self.offset),
+            Rotation::ROT90 => grid_pos(unit_pos.x + self.offset, unit_pos.y),
+            Rotation::ROT180 => grid_pos(unit_pos.x + width - 1, unit_pos.y + self.offset),
+            Rotation::ROT270 => grid_pos(unit_pos.x + self.offset, unit_pos.y + height - 1),
+        }
+    }
+
+    pub fn display(
+        &self,
+        unit_pos: &GridPos,
+        dim: (i32, i32),
+        state: &FieldState,
+        painter: &Painter,
+        theme: Theme,
+    ) {
+        let stroke_color = theme.get_stroke_color();
+        let pos = self.center(unit_pos, dim, state);
+        painter.circle_filled(pos, state.grid_size * Self::PORT_SCALE, stroke_color);
+        if state.lod_level() == LodLevel::Max {
+            let text_pos: Pos2 = state.grid_to_screen(&self.get_cell(unit_pos, dim)) + vec2(0.5, 0.5) * state.grid_size;
+            show_text_with_debounce(text_pos, self.name.clone(), state, painter, None, self.align.to_text_rotation(), self.align.to_text_align2());
+        }
+    }
+
+    pub fn is_hovered(&self, state: &FieldState, unit_pos: &GridPos, dim: (i32, i32)) -> bool {
         if let Some(cursor_pos) = state.cursor_pos {
-            let d = self.center(unit_pos, state).distance(cursor_pos);
+            let d = self.center(unit_pos, dim, state).distance(cursor_pos);
             d <= state.grid_size * Self::PORT_SCALE * 2.0
         } else {
             false
         }
     }
 
-    pub fn highlight(&self, state: &FieldState, unit_pos: &GridPos, painter: &Painter) {
-        let p = self.center(unit_pos, state);
+    pub fn highlight(
+        &self,
+        state: &FieldState,
+        unit_pos: &GridPos,
+        dim: (i32, i32),
+        painter: &Painter,
+    ) {
+        let p = self.center(unit_pos, dim, state);
         painter.circle_filled(
             p,
             state.grid_size * Self::PORT_SCALE * 3.0,
@@ -664,6 +803,10 @@ pub enum ComponentAction {
     RotateDown,
     Remove,
     None,
+    AddPort,
+    RemovePort,
+    EditPort,
+    EditText
 }
 
 impl ComponentAction {
@@ -734,6 +877,33 @@ impl ComponentAction {
         Rect::from_min_size(pos, vec2(size * n_actions as f32, size))
     }
 
+    pub fn draw_connection_icon(center: Pos2, radius: f32, painter: &Painter, stroke: Stroke) {
+        let num_segments = 30;
+        let mut points = Vec::with_capacity(num_segments + 1);
+        let start_angle = PI * 0.25;
+        let sweep_angle = 1.5 * PI;
+        for i in 0..=num_segments {
+            let t = i as f32 / num_segments as f32;
+            let angle = start_angle + t * sweep_angle;
+            points.push(center + radius * Vec2::angled(angle));
+        }
+        painter.add(Shape::Path(PathShape {
+            points,
+            closed: false,
+            fill: Color32::TRANSPARENT,
+            stroke: PathStroke::new(stroke.width, stroke.color),
+        }));
+        painter.line_segment(
+            [
+                center - vec2(radius, 0.0),
+                center - vec2(radius * 1.75, 0.0),
+            ],
+            stroke,
+        );
+        painter.line_segment([center, center + vec2(radius * 1.0, 0.0)], stroke);
+        painter.circle_filled(center, stroke.width, stroke.color);
+    }
+
     pub fn draw(
         &self,
         rect: &Rect,
@@ -770,11 +940,78 @@ impl ComponentAction {
                 painter.line_segment([scaled.left_top(), scaled.right_bottom()], stroke);
                 painter.line_segment([scaled.left_bottom(), scaled.right_top()], stroke);
             }
+            Self::AddPort => {
+                painter.text(
+                    rect.min + vec2(rect.height() * 0.05, rect.height() * 0.05),
+                    Align2::LEFT_TOP,
+                    "+",
+                    FontId::monospace(rect.height() * 0.5),
+                    stroke.color,
+                );
+                let stroke2 = Stroke {
+                    color: stroke.color,
+                    width: stroke.width * 0.75,
+                };
+                Self::draw_connection_icon(
+                    rect.center() + vec2(rect.height() * 0.1, rect.height() * 0.1),
+                    rect.height() * 0.3 * 0.75,
+                    painter,
+                    stroke2,
+                );
+            }
+            Self::RemovePort => {
+                painter.text(
+                    rect.min + vec2(rect.height() * 0.05, rect.height() * 0.05),
+                    Align2::LEFT_TOP,
+                    "×",
+                    FontId::monospace(rect.height() * 0.5),
+                    stroke.color,
+                );
+                let stroke2 = Stroke {
+                    color: stroke.color,
+                    width: stroke.width * 0.75,
+                };
+                Self::draw_connection_icon(
+                    rect.center() + vec2(rect.height() * 0.1, rect.height() * 0.1),
+                    rect.height() * 0.3 * 0.75,
+                    painter,
+                    stroke2,
+                );
+            }
+            Self::EditPort => {
+                painter.text(
+                    rect.min + vec2(rect.height() * 0.05, rect.height() * 0.05),
+                    Align2::LEFT_TOP,
+                    "📝",
+                    FontId::monospace(rect.height() * 0.5),
+                    stroke.color,
+                );
+                let stroke2 = Stroke {
+                    color: stroke.color,
+                    width: stroke.width * 0.75,
+                };
+                Self::draw_connection_icon(
+                    rect.center() + vec2(rect.height() * 0.1, rect.height() * 0.1),
+                    rect.height() * 0.3 * 0.75,
+                    painter,
+                    stroke2,
+                );
+            }
+            Self::EditText => {
+                painter.text(
+                    rect.center(),
+                    Align2::CENTER_CENTER,
+                    "📝",
+                    FontId::monospace(rect.height()),
+                    stroke.color,
+                );
+            }
             _ => {}
         }
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum RotationDirection {
     Up,
     Down,

@@ -168,7 +168,7 @@ impl eframe::App for EditorApp {
                     });
                     if ui.available_width() >= ui.available_height() * 2.5 + 40.0 {
                         ui.add_space(10.0);
-                        ui.add(egui::Label::new(locale.project_name).selectable(false));
+                        ui.add(egui::Label::new(locale.project_name.to_string() + &":").selectable(false));
                         let w = ui.available_width();
                         let h = ui.available_height();
                         ui.add(

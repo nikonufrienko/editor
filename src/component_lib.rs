@@ -1,6 +1,6 @@
 use crate::{
     grid_db::{
-        Component, ConnectionAlign, Port, PrimitiveComponent, PrimitiveType, TextField, Unit,
+        Component, DFFParams, Port, PrimitiveComponent, PrimitiveType, Rotation, TextField, Unit,
         grid_pos,
     },
     locale::Locale,
@@ -116,63 +116,121 @@ fn get_gates() -> Vec<ComponentLibEntry> {
 }
 
 fn get_units_examples() -> Vec<ComponentLibEntry> {
-    vec![ComponentLibEntry {
-        name: "Example unit",
-        component: Component::Unit(Unit {
-            name: "Example".to_owned(),
-            pos: grid_pos(1, 1), // Default preview pos
-            width: 5,
-            height: 6,
-            ports: vec![
-                Port {
-                    cell: grid_pos(0, 3),
-                    align: ConnectionAlign::LEFT,
-                    name: "vld".to_owned(),
-                },
-                Port {
-                    cell: grid_pos(0, 4),
-                    align: ConnectionAlign::LEFT,
-                    name: "data1".to_owned(),
-                },
-                Port {
-                    cell: grid_pos(0, 5),
-                    align: ConnectionAlign::LEFT,
-                    name: "data2".to_owned(),
-                },
-                Port {
-                    cell: grid_pos(4, 1),
-                    align: ConnectionAlign::RIGHT,
-                    name: "vld".to_owned(),
-                },
-                Port {
-                    cell: grid_pos(4, 2),
-                    align: ConnectionAlign::RIGHT,
-                    name: "data1".to_owned(),
-                },
-                Port {
-                    cell: grid_pos(4, 3),
-                    align: ConnectionAlign::RIGHT,
-                    name: "data2".to_owned(),
-                },
-                Port {
-                    cell: grid_pos(2, 0),
-                    align: ConnectionAlign::TOP,
-                    name: "error".to_owned(),
-                },
-            ],
-        }),
-    }]
+    vec![
+        ComponentLibEntry {
+            name: "Empty unit",
+            component: Component::Unit(Unit {
+                pos: grid_pos(1, 1), // Default preview pos
+                width: 5,
+                height: 5,
+                ports: vec![],
+            }),
+        },
+        ComponentLibEntry {
+            name: "Example unit",
+            component: Component::Unit(Unit {
+                pos: grid_pos(1, 1), // Default preview pos
+                width: 5,
+                height: 6,
+                ports: vec![
+                    Port {
+                        offset: 3,
+                        align: Rotation::ROT0,
+                        name: "vld".to_owned(),
+                    },
+                    Port {
+                        offset: 4,
+                        align: Rotation::ROT0,
+                        name: "data1".to_owned(),
+                    },
+                    Port {
+                        offset: 5,
+                        align: Rotation::ROT0,
+                        name: "data2".to_owned(),
+                    },
+                    Port {
+                        offset: 1,
+                        align: Rotation::ROT180,
+                        name: "vld".to_owned(),
+                    },
+                    Port {
+                        offset: 2,
+                        align: Rotation::ROT180,
+                        name: "data1".to_owned(),
+                    },
+                    Port {
+                        offset: 3,
+                        align: Rotation::ROT180,
+                        name: "data2".to_owned(),
+                    },
+                    Port {
+                        offset: 2,
+                        align: Rotation::ROT90,
+                        name: "error".to_owned(),
+                    },
+                    Port {
+                        offset: 2,
+                        align: Rotation::ROT270,
+                        name: "clk".to_owned(),
+                    },
+                ],
+            }),
+        },
+    ]
 }
 
 fn get_flip_flops() -> Vec<ComponentLibEntry> {
-    vec![ComponentLibEntry {
-        name: "DFF",
-        component: Component::Primitive(PrimitiveComponent {
-            typ: PrimitiveType::DFF,
-            pos: grid_pos(1, 1), // Default preview pos
-            rotation: crate::grid_db::Rotation::ROT0,
-        }),
-    }]
+    let mut result = Vec::with_capacity(8);
+    for i in 0..8 {
+        let has_enable = (i & 1) == 1;
+        let has_sync_reset = ((i >> 1) & 1) == 1;
+        let has_async_reset = ((i >> 2) & 1) == 1;
+        for async_reset_inverted in if has_async_reset {
+            [false, true].iter()
+        } else {
+            [false].iter()
+        } {
+            for sync_reset_inverted in if has_sync_reset {
+                [false, true].iter()
+            } else {
+                [false].iter()
+            } {
+                let params = DFFParams {
+                    has_enable: has_enable,
+                    has_sync_reset: has_sync_reset,
+                    has_async_reset: has_async_reset,
+                    async_reset_inverted: *async_reset_inverted,
+                    sync_reset_inverted: *sync_reset_inverted,
+                };
+                let name: &'static str = Box::leak(Box::new(format!(
+                    "DFF{}{}{}",
+                    if params.has_enable { "E" } else { "" },
+                    if params.has_sync_reset {
+                        format!("_RST{}", if params.sync_reset_inverted { "N" } else { "" })
+                    } else {
+                        String::new()
+                    },
+                    if params.has_async_reset {
+                        format!(
+                            "_ARST{}",
+                            if params.async_reset_inverted { "N" } else { "" }
+                        )
+                    } else {
+                        String::new()
+                    }
+                )));
+                result.push(ComponentLibEntry {
+                    name: &name,
+                    component: Component::Primitive(PrimitiveComponent {
+                        typ: PrimitiveType::DFF(params),
+                        pos: grid_pos(1, 1), // Default preview pos
+                        rotation: crate::grid_db::Rotation::ROT0,
+                    }),
+                });
+            }
+        }
+    }
+    result
 }
 
 fn get_text_labels() -> Vec<ComponentLibEntry> {
@@ -180,7 +238,7 @@ fn get_text_labels() -> Vec<ComponentLibEntry> {
         name: "Text field",
         component: Component::TextField(TextField {
             pos: grid_pos(1, 1), // Default preview pos
-            size: (4, 4),
+            size: (4, 1),
             text: "Some text".into(),
         }),
     }]

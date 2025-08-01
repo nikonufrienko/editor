@@ -23,8 +23,7 @@ Main features:
     - [ ] NOR
     - [x] MUX
     - [x] POINT
-    - [ ] DFF_S_RST_N (D-type flip-flop with synchronous reset_n)
-    - [ ] DFF_A_RST_N (D-type flip-flop with asynchronous reset_n)
+    - [x] D-type flip-flops
     - [x] TEXT_FIELD
 * [ ] Add component parameterization settings.
 * Add SVG export:

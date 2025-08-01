@@ -7,7 +7,7 @@ use std::{
     vec,
 };
 
-use egui::Theme;
+use egui::{Align2, Theme};
 use egui::{
     Color32, Mesh, Painter, Pos2, Shape, Stroke,
     ahash::{HashMap, HashMapExt},
@@ -16,7 +16,7 @@ use egui::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::grid_db::{ComponentColor, STROKE_SCALE, show_text_with_debounce};
+use crate::grid_db::{ComponentColor, STROKE_SCALE, show_text_with_debounce, svg_single_line_text};
 use crate::{
     field::{Field, FieldState, SVG_DUMMY_STATE},
     grid_db::{svg_circle_filled, svg_line, svg_polygon, tesselate_polygon},
@@ -300,8 +300,9 @@ impl PrimitiveComponent {
                     text,
                     state,
                     painter,
-                    f32::MAX,
+                    None,
                     rotation + self.rotation,
+                    Align2::LEFT_TOP
                 );
             }
         }
@@ -355,11 +356,88 @@ impl PrimitiveComponent {
             result.push_str(&(svg_polygon(&points, fill_color, stroke_color, stroke_w) + &"\n"));
         }
 
+        // Text labels:
+        let font_size = 0.5 * scale;
+        for (pos, text, rotation) in self.typ.get_text_labels() {
+            result.push_str(
+                &(svg_single_line_text(
+                    text,
+                    (self.apply_rotation(pos + pos_vec2, &SVG_DUMMY_STATE) + offset_vec2) * scale,
+                    font_size,
+                    rotation + self.rotation,
+                    theme,
+                    Align2::LEFT_TOP
+                ) + &"\n"),
+            );
+        }
+
         result
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, Copy, Hash, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Serialize, Deserialize, Hash, PartialEq, Eq)]
+pub struct DFFParams {
+    pub has_enable: bool,
+    pub has_async_reset: bool,
+    pub has_sync_reset: bool,
+
+    pub async_reset_inverted: bool,
+    pub sync_reset_inverted: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DFFPort {
+    D,
+    Q,
+    AsyncReset,
+    SyncReset,
+    Enable,
+    Clk,
+}
+
+impl DFFPort {
+    /// Returns the additional ports (beyond D, CLK, Q) based on parameters
+    fn additional_ports(params: &DFFParams) -> &'static [Self; 3] {
+        // Pre-define all possible combinations for quick lookup
+        static PORT_COMBINATIONS: [[DFFPort; 3]; 8] = [
+            // 0: no additional ports
+            [DFFPort::Clk, DFFPort::Clk, DFFPort::Clk], // None placeholder
+            // 1: sync reset only
+            [DFFPort::SyncReset, DFFPort::Clk, DFFPort::Clk],
+            // 2: async reset only
+            [DFFPort::AsyncReset, DFFPort::Clk, DFFPort::Clk],
+            // 3: sync + async reset
+            [DFFPort::SyncReset, DFFPort::AsyncReset, DFFPort::Clk],
+            // 4: enable only
+            [DFFPort::Enable, DFFPort::Clk, DFFPort::Clk],
+            // 5: sync reset + enable
+            [DFFPort::SyncReset, DFFPort::Enable, DFFPort::Clk],
+            // 6: async reset + enable
+            [DFFPort::AsyncReset, DFFPort::Enable, DFFPort::Clk],
+            // 7: all additional ports
+            [DFFPort::SyncReset, DFFPort::AsyncReset, DFFPort::Enable],
+        ];
+
+        let index = (params.has_enable as usize) << 2
+            | (params.has_async_reset as usize) << 1
+            | params.has_sync_reset as usize;
+
+        &PORT_COMBINATIONS[index]
+    }
+
+    /// Converts a connection ID to a port type
+    fn from_id(params: &DFFParams, id: usize) -> Option<Self> {
+        match id {
+            0 => Some(Self::Clk),
+            1 => Some(Self::D),
+            2 => Some(Self::Q),
+            3..=5 => Self::additional_ports(params).get(id - 3).copied(),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum PrimitiveType {
     // Logic gates:
     And(usize),
@@ -376,8 +454,8 @@ pub enum PrimitiveType {
     Input,
     Output,
 
-    // DFF
-    DFF,
+    // D-type flip-flop
+    DFF(DFFParams),
 }
 
 impl PrimitiveType {
@@ -976,60 +1054,114 @@ impl PrimitiveType {
     //
     // *** DFF (D-type flip-flop) ***
     //
-    const DFF_DIMENSION: (i32, i32) = (3, 5);
-    const DFF_N_CONNECTIONS: usize = 4;
-    fn get_dff_dock_cell_raw(connection_id: Id, primitive_pos: &GridPos) -> GridPos {
-        match connection_id {
-            // D:
-            0 => grid_pos(-1, 1) + *primitive_pos,
-            // clk:
-            1 => grid_pos(-1, 3) + *primitive_pos,
-            // rst:
-            2 => grid_pos(1, -1) + *primitive_pos,
-            // Q
-            3 => grid_pos(3, 2) + *primitive_pos,
+    const DFF_DIMENSION: (i32, i32) = (5, 5);
+
+    fn get_dff_connections_number(params: &DFFParams) -> usize {
+        3 + if params.has_sync_reset { 1 } else { 0 }
+            + if params.has_async_reset { 1 } else { 0 }
+            + if params.has_enable { 1 } else { 0 }
+    }
+
+    fn get_dff_dock_cell_raw(
+        params: &DFFParams,
+        connection_id: Id,
+        primitive_pos: &GridPos,
+    ) -> GridPos {
+        match DFFPort::from_id(params, connection_id) {
+            Some(DFFPort::D) => grid_pos(0, 1) + *primitive_pos,
+            Some(DFFPort::Clk) => grid_pos(0, 3) + *primitive_pos,
+            Some(DFFPort::Q) => grid_pos(4, 2) + *primitive_pos,
+            Some(DFFPort::AsyncReset) => grid_pos(2, 0) + *primitive_pos,
+            Some(DFFPort::SyncReset) => grid_pos(0, 2) + *primitive_pos,
+            Some(DFFPort::Enable) => grid_pos(0, 4) + *primitive_pos,
             _ => panic!("Wrong port"),
         }
     }
 
-    fn get_dff_polygons_points_raw() -> Vec<Vec<Pos2>> {
+    fn get_dff_polygons_points_raw(params: &DFFParams, lod_level: LodLevel) -> Vec<Vec<Pos2>> {
         let (width, height) = Self::DFF_DIMENSION;
-        vec![
+        let mut result = Vec::with_capacity(4);
+        result.extend([
             vec![
-                pos2(0.0, 0.0),
-                pos2(width as f32, 0.0),
-                pos2(width as f32, height as f32),
-                pos2(0.0, height as f32),
+                pos2(1.05, 1.05),
+                pos2(width as f32 - 1.05, 1.05),
+                pos2(width as f32 - 1.05, height as f32 - 0.05),
+                pos2(1.05, height as f32 - 0.05),
             ],
-            vec![pos2(0.0, 3.0), pos2(1.0, 3.5), pos2(0.0, 4.0)],
-        ]
+            vec![pos2(1.05, 3.0), pos2(2.0, 3.5), pos2(1.05, 4.0)],
+        ]);
+        if params.sync_reset_inverted {
+            result.push(Self::get_circle_points(pos2(1.0, 2.5), 0.17, lod_level));
+        }
+        if params.async_reset_inverted {
+            result.push(Self::get_circle_points(pos2(2.5, 1.0), 0.17, lod_level));
+        }
+        result
     }
 
-    fn get_dff_connection_position_raw(connection_id: Id) -> Pos2 {
-        match connection_id {
-            // D:
-            0 => pos2(0.0, 1.5),
-            // clk:
-            1 => pos2(0.0, 3.5),
-            // rst:
-            2 => pos2(1.5, 0.0),
-            // Q
-            3 => pos2(3.0, 2.5),
+    fn get_dff_connection_position_raw(params: &DFFParams, connection_id: Id) -> Pos2 {
+        match DFFPort::from_id(params, connection_id) {
+            Some(DFFPort::D) => pos2(0.5, 1.5),
+            Some(DFFPort::Clk) => pos2(0.5, 3.5),
+            Some(DFFPort::Q) => pos2(4.5, 2.5),
+            Some(DFFPort::AsyncReset) => pos2(2.5, 0.5),
+            Some(DFFPort::SyncReset) => pos2(0.5, 2.5),
+            Some(DFFPort::Enable) => pos2(0.5, 4.5),
             _ => panic!("Wrong port"),
         }
     }
 
-    fn get_dff_text_fields() -> Vec<(Pos2, String, Rotation)> {
-        let (width, height) = Self::DFF_DIMENSION;
-        vec![
-            (pos2(0.3, 1.0), "D".into(), Rotation::ROT0),
-            (pos2(1.8, 0.2), "ARST".into(), Rotation::ROT90),
-            (
-                pos2(width as f32 - 0.7, height as f32 * 0.5 - 0.3),
-                "Q".into(),
+    fn get_dff_text_fields(params: &DFFParams) -> Vec<(Pos2, String, Rotation)> {
+        let n_connections = Self::get_dff_connections_number(params);
+        let mut result: Vec<(Pos2, String, Rotation)> = Vec::with_capacity(n_connections - 1);
+        result.extend([
+            (pos2(1.25, 1.25), "D".into(), Rotation::ROT0),
+            (pos2(3.45, 2.25), "Q".into(), Rotation::ROT0),
+        ]);
+        if params.has_enable {
+            result.push((pos2(1.25, 4.25), "EN".into(), Rotation::ROT0));
+        }
+        if params.has_async_reset {
+            result.push((
+                pos2(1.9, 1.1),
+                "ARST".to_string()
+                    + if params.async_reset_inverted {
+                        "_N"
+                    } else {
+                        ""
+                    },
                 Rotation::ROT0,
-            ),
-        ]
+            ));
+        }
+        if params.has_sync_reset {
+            result.push((
+                pos2(1.25, 2.25),
+                "RST".to_string() + if params.sync_reset_inverted { "_N" } else { "" },
+                Rotation::ROT0,
+            ));
+        }
+        result
+    }
+
+    fn get_dff_lines_raw(params: &DFFParams) -> Vec<Vec<Pos2>> {
+        let n_connections = Self::get_dff_connections_number(params);
+        let mut result = Vec::with_capacity(n_connections);
+
+        result.extend([
+            vec![pos2(0.5, 1.5), pos2(1.0, 1.5)], // D
+            vec![pos2(0.5, 3.5), pos2(1.0, 3.5)], // Clk
+            vec![pos2(4.5, 2.5), pos2(3.5, 2.5)], // Q
+        ]);
+        if params.has_enable {
+            result.push(vec![pos2(0.5, 4.5), pos2(1.0, 4.5)]);
+        }
+        if params.has_sync_reset {
+            result.push(vec![pos2(0.5, 2.5), pos2(1.0, 2.5)]);
+        }
+        if params.has_async_reset {
+            result.push(vec![pos2(2.5, 0.5), pos2(2.5, 1.0)]);
+        }
+        result
     }
 
     //
@@ -1042,7 +1174,7 @@ impl PrimitiveType {
             Self::Xor(n_inputs) => *n_inputs + 1,
             Self::Nand(n_inputs) => *n_inputs + 1,
             Self::Mux(n_inputs) => *n_inputs + 2,
-            Self::DFF => Self::DFF_N_CONNECTIONS,
+            Self::DFF(params) => Self::get_dff_connections_number(params),
             Self::Not => 2,
             Self::Input => 1,
             Self::Output => 1,
@@ -1058,7 +1190,7 @@ impl PrimitiveType {
             Self::Nand(n_inputs) => Self::get_nand_gate_dimension_raw(*n_inputs),
             Self::Not => (3, 3),
             Self::Mux(n_inputs) => Self::get_mux_dimension_raw(*n_inputs),
-            Self::DFF => Self::DFF_DIMENSION,
+            Self::DFF(_) => Self::DFF_DIMENSION,
             Self::Input => (2, 1),
             Self::Output => (2, 1),
             Self::Point => (1, 1),
@@ -1083,7 +1215,7 @@ impl PrimitiveType {
                 Self::get_mux_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
             }
             Self::Not => Self::get_not_dock_cell_raw(connection_id, primitive_pos),
-            Self::DFF => Self::get_dff_dock_cell_raw(connection_id, primitive_pos),
+            Self::DFF(params) => Self::get_dff_dock_cell_raw(params, connection_id, primitive_pos),
             Self::Input => Self::get_input_dock_cell_raw(primitive_pos),
             Self::Output => Self::get_output_dock_cell_raw(primitive_pos),
             Self::Point => *primitive_pos,
@@ -1106,7 +1238,7 @@ impl PrimitiveType {
             }
             Self::Not => Self::get_not_connection_position_raw(connection_id),
             Self::Mux(n_inputs) => Self::get_mux_connection_position_raw(connection_id, *n_inputs),
-            Self::DFF => Self::get_dff_connection_position_raw(connection_id),
+            Self::DFF(params) => Self::get_dff_connection_position_raw(params, connection_id),
             Self::Input => Self::get_input_connection_position_raw(connection_id),
             Self::Output => Self::get_output_connection_position_raw(connection_id),
             Self::Point => pos2(0.5, 0.5),
@@ -1127,7 +1259,7 @@ impl PrimitiveType {
             Self::Output => vec![Self::get_output_polygon_points_raw()],
             Self::Not => Self::get_not_polygons_points_raw(lod_level),
             Self::Mux(n_inputs) => vec![Self::get_mux_polygon_points_raw(*n_inputs)],
-            Self::DFF => Self::get_dff_polygons_points_raw(),
+            Self::DFF(params) => Self::get_dff_polygons_points_raw(params, lod_level),
             Self::Point => vec![],
         }
     }
@@ -1139,13 +1271,14 @@ impl PrimitiveType {
             Self::Nand(n_inputs) => Self::get_nand_gate_lines_raw(*n_inputs),
             Self::Output => Self::get_output_lines_raw(),
             Self::Not => Self::get_not_lines_raw(),
+            Self::DFF(params) => Self::get_dff_lines_raw(params),
             _ => vec![],
         }
     }
 
     fn get_text_labels(&self) -> Vec<(Pos2, String, Rotation)> {
         match self {
-            Self::DFF => Self::get_dff_text_fields(),
+            Self::DFF(params) => Self::get_dff_text_fields(params),
             _ => vec![],
         }
     }

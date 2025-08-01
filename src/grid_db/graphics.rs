@@ -1,5 +1,5 @@
 use egui::epaint::Vertex;
-use egui::{Color32, Mesh, Painter, Pos2, Rect, Stroke, Theme, Vec2, pos2};
+use egui::{pos2, Align, Align2, Color32, Mesh, Painter, Pos2, Rect, Stroke, Theme, Vec2};
 use lyon::geom::point;
 use lyon::{
     path::{LineCap, LineJoin, Path},
@@ -12,6 +12,7 @@ use lyon::{
 use std::cell::RefCell;
 
 use crate::field::FieldState;
+use crate::grid_db::{Rotation};
 
 pub fn tesselate_polygon(
     points: &Vec<Pos2>,
@@ -267,6 +268,61 @@ impl ComponentColor for Theme {
     fn get_stroke(&self, state: &FieldState) -> Stroke {
         return Stroke::new(state.grid_size * STROKE_SCALE, self.get_stroke_color());
     }
+}
+
+pub fn svg_single_line_text(
+    text: String,
+    pos: Pos2,
+    font_size: f32,
+    rotation: Rotation,
+    theme: Theme,
+    anchor: Align2,
+) -> String {
+    let color = theme.get_text_color().to_hex();
+    let Pos2 { x, y } = pos;
+    let deg_angle = match rotation {
+        Rotation::ROT0 => "0",
+        Rotation::ROT90 => "90",
+        Rotation::ROT180 => "180",
+        Rotation::ROT270 => "270",
+    };
+
+    let text_anchor = match anchor.x() {
+        Align::LEFT => "start",
+        Align::Center => "middle",
+        Align::RIGHT => "end",
+    };
+
+    let dominant_baseline = match anchor.y() {
+        Align::TOP => "hanging",
+        Align::Center => "middle",
+        Align::BOTTOM => "baseline",
+    };
+
+    format!(
+        r#"<text x="{x}" y="{y}" font-family="monospace" font-size="{font_size}" fill="{color}" text-anchor="{text_anchor}" dominant-baseline="{dominant_baseline}" transform="rotate({deg_angle}, {x}, {y})">{text}</text>"#
+    )
+}
+
+pub fn svg_rect(
+    pos : Pos2,
+    (width, height) : (f32, f32),
+    stroke_w: f32,
+    theme: Theme,
+) -> String {
+    let fill_color = theme.get_fill_color().to_hex();
+    let stroke_color = theme.get_stroke_color().to_hex();
+    format!(
+    r#"
+    <rect
+        x="{}"
+        y="{}"
+        width="{width}"
+        height="{height}"
+        fill="{fill_color}"
+        stroke="{stroke_color}"
+        stroke-width="{stroke_w}"
+    />"#, pos.x, pos.y, )
 }
 
 #[allow(unused)]

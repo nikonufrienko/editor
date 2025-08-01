@@ -1,15 +1,14 @@
 use std::collections::LinkedList;
 
 use crate::{
-    field::{FieldState, blocked_cell, filled_cells},
+    field::{blocked_cell, filled_cells, FieldState},
     grid_db::{
-        Component, ComponentAction, ComponentColor, GridBD, GridBDConnectionPoint, GridPos, Id,
-        Net, RotationDirection, grid_pos, show_text_edit,
+        grid_pos, show_text_edit, Component, ComponentAction, ComponentColor, GridBD, GridBDConnectionPoint, GridPos, Id, Net, Port, RotationDirection
     },
 };
 use egui::{
-    Color32, CursorIcon, KeyboardShortcut, Modifiers, Painter, Pos2, Rect, Response, Stroke,
-    StrokeKind, Ui, Vec2, vec2,
+    Align2, Color32, CursorIcon, FontId, KeyboardShortcut, Modifiers, Painter, Pos2, Rect,
+    Response, Shape, Stroke, StrokeKind, Ui, Vec2, epaint::TextShape, vec2,
 };
 
 pub fn draw_component_drag_preview(
@@ -64,6 +63,9 @@ enum InteractionState {
         text_buffer: String,
     },
     CreatingNet,
+    AddingPort(Id),
+    RemovingPort(Id),
+    EditingPort(Id),
 }
 
 pub struct InteractionManager {
@@ -137,24 +139,27 @@ impl InteractionManager {
         );
     }
 
-    fn get_move_net_connection_point_transaction(
-        comp_id: Id,
+    fn get_net_connection_move_transaction(
         net_id: Id,
-        bd: &mut GridBD,
-        delta_x: i32,
-        delta_y: i32,
-    ) -> Transaction {
+        bd: &GridBD,
+        (delta_x_start, delta_y_start) : (i32, i32),
+        (delta_x_end, delta_y_end) : (i32, i32),
+    ) -> Option<Transaction> {
         let mut net = bd.get_net(&net_id).unwrap().clone();
         let pts_len = net.points.len();
 
+        if delta_x_start == 0 && delta_y_start == 0 && delta_x_end == 0 && delta_y_end == 0 {
+            return None;
+        }
         if pts_len >= 2 {
-            if comp_id == net.start_point.component_id && comp_id == net.end_point.component_id {
-                // Move all points if component is connected to both ends
+            if delta_x_start == delta_x_end && delta_y_start == delta_y_end {
+                // Just move all points:
                 for i in 0..net.points.len() {
-                    net.points[i] = net.points[i] + grid_pos(delta_x, delta_y);
+                    net.points[i] = net.points[i] + grid_pos(delta_x_start, delta_y_start);
                 }
-            } else if comp_id == net.start_point.component_id {
-                // Handle component connected to start of net
+            } else {
+                // Rebuild start point:
+                let (delta_x, delta_y) = (delta_x_start, delta_y_start);
                 if net.points[0].y == net.points[1].y {
                     // horizontal segment
                     if net.points.len() >= 4 {
@@ -182,8 +187,8 @@ impl InteractionManager {
                         }
                     }
                 }
-            } else if comp_id == net.end_point.component_id {
-                // Handle component connected to end of net
+                // Rebuild end point:
+                let (delta_x, delta_y) = (delta_x_end, delta_y_end);
                 if net.points[pts_len - 1].y == net.points[pts_len - 2].y {
                     // horizontal segment
                     if net.points.len() >= 4 {
@@ -215,11 +220,11 @@ impl InteractionManager {
         }
 
         net.points = simplify_path(net.points);
-        return Transaction::ChangeNet {
+        return Some(Transaction::ChangeNet {
             net_id: net_id,
             old_net: None,
             new_net: Some(net),
-        };
+        });
     }
 
     fn move_component(&mut self, comp_id: Id, bd: &mut GridBD, new_pos: GridPos) {
@@ -235,9 +240,23 @@ impl InteractionManager {
 
             let mut transactions = LinkedList::new();
             for net_id in bd.get_connected_nets(&comp_id) {
-                transactions.push_back(Self::get_move_net_connection_point_transaction(
-                    comp_id, net_id, bd, delta_x, delta_y,
-                ));
+                let net = bd.get_net(&net_id).unwrap();
+                let trans = Self::get_net_connection_move_transaction(
+                    net_id, bd,
+                    if net.start_point.component_id == comp_id {
+                        (delta_x, delta_y)
+                    } else {
+                        (0, 0)
+                    },
+                    if net.end_point.component_id == comp_id {
+                        (delta_x, delta_y)
+                    } else {
+                        (0, 0)
+                    }
+                );
+                if let Some(t) = trans {
+                    transactions.push_back(t);
+                }
             }
             transactions.push_back(Transaction::ChangeComponent {
                 comp_id,
@@ -246,6 +265,30 @@ impl InteractionManager {
             });
             self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
         }
+    }
+
+    fn get_net_rotation_transaction(
+        net_id: Id,
+        bd: &GridBD,
+        rot_center: GridPos,
+        offset: GridPos,
+        rotation_dir: RotationDirection,
+    ) -> Transaction {
+        let mut new_net = bd.get_net(&net_id).unwrap().clone();
+        for p in &mut new_net.points {
+            let dx = p.x - rot_center.x;
+            let dy = p.y - rot_center.y;
+            match rotation_dir {
+                RotationDirection::Up => { // -90 degree
+                    *p = grid_pos(-dy + rot_center.x, dx + rot_center.y);
+                },
+                RotationDirection::Down => { // -90 degree
+                    *p = grid_pos(dy + rot_center.x, -dx + rot_center.y);
+                },
+            }
+            *p = *p + offset;
+        }
+        return Transaction::ChangeNet { net_id: net_id, old_net: None, new_net: Some(new_net) };
     }
 
     fn rotate_component(&mut self, comp_id: Id, bd: &mut GridBD, dir: RotationDirection) {
@@ -263,29 +306,39 @@ impl InteractionManager {
                 .iter()
                 .map(|it| *it)
                 .collect();
-            let connections_ids: Vec<Id> = nets_ids
-                .iter()
-                .map(|it| {
-                    let net = bd.nets.get(it).unwrap();
-                    if net.end_point.component_id == comp_id {
-                        net.end_point.connection_id
-                    } else {
-                        net.start_point.connection_id
-                    }
-                })
-                .collect();
 
             let mut transactions = LinkedList::new();
-            for (i, net_id) in nets_ids.iter().enumerate() {
-                let old_pos = comp.get_connection_dock_cell(connections_ids[i]).unwrap();
-                let new_pos = rotated_comp
-                    .get_connection_dock_cell(connections_ids[i])
-                    .unwrap();
-                let delta_y = new_pos.y - old_pos.y;
-                let delta_x = new_pos.x - old_pos.x;
-                transactions.push_back(Self::get_move_net_connection_point_transaction(
-                    comp_id, *net_id, bd, delta_x, delta_y,
-                ));
+            for net_id in nets_ids.iter() {
+                let net = bd.get_net(&net_id).unwrap();
+                if net.end_point.component_id == comp_id && net.start_point.component_id == comp_id {
+                    transactions.push_back(Self::get_net_rotation_transaction(*net_id, bd, comp.get_position(),
+                    match dir {
+                        RotationDirection::Up => grid_pos(comp.get_dimension().1 - 1, 0),
+                        RotationDirection::Down => grid_pos(0, comp.get_dimension().0 - 1),
+                    }
+                    , dir));
+                } else {
+                    let trans = Self::get_net_connection_move_transaction(
+                        *net_id, bd,
+                        if net.start_point.component_id == comp_id {
+                            let old_cell = comp.get_connection_dock_cell(net.start_point.connection_id).unwrap();
+                            let new_cell = rotated_comp.get_connection_dock_cell(net.start_point.connection_id).unwrap();
+                            (new_cell.x - old_cell.x, new_cell.y - old_cell.y)
+                        } else {
+                            (0, 0)
+                        },
+                        if net.end_point.component_id == comp_id {
+                            let old_cell = comp.get_connection_dock_cell(net.end_point.connection_id).unwrap();
+                            let new_cell = rotated_comp.get_connection_dock_cell(net.end_point.connection_id).unwrap();
+                            (new_cell.x - old_cell.x, new_cell.y - old_cell.y)
+                        } else {
+                            (0, 0)
+                        }
+                    );
+                    if let Some(t) = trans {
+                        transactions.push_back(t);
+                    }
+                }
             }
 
             transactions.push_back(Transaction::ChangeComponent {
@@ -301,16 +354,47 @@ impl InteractionManager {
         let comp = bd.get_component(&comp_id).unwrap();
 
         if bd.is_available_location(comp.get_position(), new_size, comp_id) {
-            let mut comp = bd.get_component(&comp_id).unwrap().clone();
-            comp.set_size(new_size);
-            self.apply_new_transaction(
-                Transaction::ChangeComponent {
-                    comp_id: comp_id,
-                    old_comp: None,
-                    new_comp: Some(comp),
-                },
-                bd,
-            );
+            let mut transactions = LinkedList::new();
+            let mut new_comp = comp.clone();
+            new_comp.set_size(new_size);
+
+            // Refresh connected nets:
+            let nets_ids: Vec<Id> = bd
+                .get_connected_nets(&comp_id)
+                .iter()
+                .map(|it| *it)
+                .collect();
+
+            for net_id in &nets_ids {
+                let net = bd.get_net(&net_id).unwrap();
+                let trans = Self::get_net_connection_move_transaction(
+                    *net_id, bd,
+                    if net.start_point.component_id == comp_id {
+                        let old_cell = comp.get_connection_dock_cell(net.start_point.connection_id).unwrap();
+                        let new_cell = new_comp.get_connection_dock_cell(net.start_point.connection_id).unwrap();
+                        (new_cell.x - old_cell.x, new_cell.y - old_cell.y)
+                    } else {
+                        (0, 0)
+                    },
+                    if net.end_point.component_id == comp_id {
+                        let old_cell = comp.get_connection_dock_cell(net.end_point.connection_id).unwrap();
+                        let new_cell = new_comp.get_connection_dock_cell(net.end_point.connection_id).unwrap();
+                        (new_cell.x - old_cell.x, new_cell.y - old_cell.y)
+                    } else {
+                        (0, 0)
+                    }
+                );
+                if let Some(t) = trans {
+                    transactions.push_back(t);
+                }
+            }
+            transactions.push_back(Transaction::ChangeComponent {
+                comp_id: comp_id,
+                old_comp: None,
+                new_comp: Some(new_comp),
+            });
+
+            self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
         }
     }
 
@@ -333,6 +417,47 @@ impl InteractionManager {
 
     const UNDO_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::CTRL, egui::Key::Z);
     const REDO_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::CTRL, egui::Key::Y);
+
+    fn remove_port(&mut self, bd: &mut GridBD, comp_id: Id, port_id: Id) {
+        let mut transactions = LinkedList::new();
+        // Refresh connected net:
+        for net_id in bd.get_connected_nets(&comp_id) {
+            let net = bd.get_net(&net_id).unwrap();
+            if (net.end_point.connection_id == port_id && net.end_point.component_id == comp_id)
+                || (net.start_point.connection_id == port_id
+                    && net.start_point.component_id == comp_id)
+            {
+                transactions.push_back(Transaction::ChangeNet {
+                    net_id: net_id,
+                    old_net: None,
+                    new_net: None,
+                });
+            } else {
+                let mut new_net = net.clone();
+                if net.start_point.connection_id > port_id
+                    && net.start_point.component_id == comp_id
+                {
+                    new_net.start_point.connection_id -= 1;
+                }
+                if net.end_point.connection_id > port_id && net.end_point.component_id == comp_id {
+                    new_net.end_point.connection_id -= 1;
+                }
+                transactions.push_back(Transaction::ChangeNet {
+                    net_id: net_id,
+                    old_net: None,
+                    new_net: Some(new_net),
+                });
+            }
+        }
+        let mut new_comp = bd.get_component(&comp_id).unwrap().clone();
+        new_comp.remove_port(port_id);
+        transactions.push_back(Transaction::ChangeComponent {
+            comp_id: comp_id,
+            old_comp: None,
+            new_comp: Some(new_comp),
+        });
+        self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
+    }
 
     /// Refreshes action state.
     /// Returns false if no action performed.
@@ -472,23 +597,31 @@ impl InteractionManager {
                             self.state = InteractionState::Idle;
                             return true;
                         }
+                        ComponentAction::AddPort => {
+                            self.state = InteractionState::AddingPort(*id);
+                            return true;
+                        }
+                        ComponentAction::RemovePort => {
+                            self.state = InteractionState::RemovingPort(*id);
+                            return true;
+                        }
+                        ComponentAction::EditPort => {
+                            self.state = InteractionState::EditingPort(*id);
+                            return true;
+                        }
+                        ComponentAction::EditText => {
+                            self.state = InteractionState::EditingText {
+                                id: *id,
+                                text_edit_id: 0,
+                                text_buffer: comp.get_text_edit(0).unwrap().clone(),
+                            };
+                            return true;
+                        }
                         _ => {}
                     }
                     return true;
                 } else if comp.is_hovered(state) {
-                    if let Some(text_edit_id) = comp.get_hovered_text_edit_id() {
-                        ui.ctx().output_mut(|o| o.cursor_icon = CursorIcon::Text);
-                        if response.clicked() {
-                            self.state = InteractionState::EditingText {
-                                id: *id,
-                                text_edit_id,
-                                text_buffer: comp.get_text_edit(text_edit_id).unwrap().clone(),
-                            };
-                            return true;
-                        }
-                    } else {
-                        ui.ctx().output_mut(|o| o.cursor_icon = CursorIcon::Grab);
-                    }
+                    ui.ctx().output_mut(|o| o.cursor_icon = CursorIcon::Grab);
 
                     // Check dragging:
                     if response.dragged() {
@@ -563,6 +696,7 @@ impl InteractionManager {
                 let text_edit_rect = comp.get_text_edit_rect(*text_edit_id, state).unwrap();
 
                 if response.clicked() {
+                    // Save changes and exit:
                     if let Some(cursor_pos) = state.cursor_pos {
                         if !text_edit_rect.contains(cursor_pos) {
                             let mut new_comp = comp.clone();
@@ -591,6 +725,59 @@ impl InteractionManager {
                         self.state = InteractionState::Idle;
                     }
                     _ => {}
+                }
+            }
+            InteractionState::AddingPort(id) => {
+                let comp = bd.get_component(id).unwrap();
+                if response.clicked() && !comp.is_hovered(state) {
+                    self.state = InteractionState::Idle;
+                    return true;
+                } else if response.clicked() {
+                    if let Some((rotation, offset, _)) = comp.get_nearest_port_pos(state, false) {
+                        let mut new_comp = comp.clone();
+                        new_comp.add_port(Port {
+                            offset: offset,
+                            align: rotation,
+                            name: "...".into(),
+                        });
+                        self.apply_new_transaction(
+                            Transaction::ChangeComponent {
+                                comp_id: *id,
+                                old_comp: None,
+                                new_comp: Some(new_comp),
+                            },
+                            bd,
+                        );
+                    }
+                }
+            }
+            InteractionState::RemovingPort(id) => {
+                // TODO
+                let comp = bd.get_component(id).unwrap();
+                if response.clicked() && !comp.is_hovered(state) {
+                    self.state = InteractionState::Idle;
+                    return true;
+                } else if response.clicked() {
+                    if let Some((_, _, port_id)) = comp.get_nearest_port_pos(state, true) {
+                        self.remove_port(bd, *id, port_id.unwrap());
+                    }
+                }
+            }
+            InteractionState::EditingPort(id) => {
+                let comp = bd.get_component(id).unwrap();
+                if response.clicked() && !comp.is_hovered(state) {
+                    self.state = InteractionState::Idle;
+                    return true;
+                } else if response.clicked() {
+                    if let Some((_, _, port_id)) = comp.get_nearest_port_pos(state, true) {
+                        let port_id = port_id.unwrap();
+                        self.state = InteractionState::EditingText {
+                            id: *id,
+                            text_edit_id: port_id,
+                            text_buffer: comp.get_text_edit(port_id).unwrap().clone(),
+                        };
+                        return true;
+                    }
                 }
             }
         }
@@ -654,6 +841,7 @@ impl InteractionManager {
                 if let Some(seg) = bd.get_hovered_segment(state) {
                     seg.highlight(state, &painter);
                 }
+                self.connection_builder.draw(bd, state, painter);
             }
             InteractionState::ComponentSelected(id) => {
                 if let Some(comp) = bd.get_component(&id) {
@@ -714,11 +902,119 @@ impl InteractionManager {
                     state.grid_size * 0.1,
                     ui.ctx().theme().get_stroke_color().gamma_multiply_u8(127),
                 );
-                show_text_edit(text_edit_rect, text_buffer, state, ui);
+                show_text_edit(
+                    text_edit_rect,
+                    comp.is_single_line_text_edit(),
+                    text_buffer,
+                    state,
+                    ui,
+                );
             }
-            _ => {}
+            InteractionState::AddingPort(id) => {
+                let comp = bd.get_component(id).unwrap();
+                let rect = Self::get_selection_rect(comp, state);
+                painter.rect_stroke(
+                    rect,
+                    state.grid_size * 0.1,
+                    Stroke::new(state.grid_size * 0.15, Color32::BLUE.gamma_multiply(0.25)),
+                    StrokeKind::Outside,
+                );
+                if let Some((rotation, offset, _)) = comp.get_nearest_port_pos(state, false) {
+                    // TODO: refactor it
+                    let center = Port {
+                        align: rotation,
+                        offset: offset,
+                        name: "".into(),
+                    }
+                    .center(&comp.get_position(), comp.get_dimension(), state);
+                    painter.text(
+                        center,
+                        Align2::CENTER_CENTER,
+                        "+",
+                        FontId::monospace(state.grid_size),
+                        Color32::GREEN,
+                    );
+                }
+            }
+            InteractionState::EditingPort(id) => {
+                let comp = bd.get_component(id).unwrap();
+
+                let rect = Self::get_selection_rect(comp, state);
+                painter.rect_stroke(
+                    rect,
+                    state.grid_size * 0.1,
+                    Stroke::new(state.grid_size * 0.15, Color32::GREEN.gamma_multiply(0.25)),
+                    StrokeKind::Outside,
+                );
+
+                if let Some((rotation, offset, _)) = comp.get_nearest_port_pos(state, true) {
+                    // TODO: refactor it
+                    let center = Port {
+                        align: rotation,
+                        offset: offset,
+                        name: "".into(),
+                    }
+                    .center(&comp.get_position(), comp.get_dimension(), state);
+                    painter.circle_filled(
+                        center,
+                        state.grid_size * 0.3,
+                        Color32::BLUE.gamma_multiply(0.5),
+                    );
+                    let theme = painter.ctx().theme();
+                    let galley = painter.fonts(|fonts| {
+                        fonts.layout_no_wrap(
+                            "📝".into(),
+                            FontId::monospace(state.grid_size),
+                            theme.get_text_color(),
+                        )
+                    });
+                    let shape = Shape::Text(TextShape::new(center, galley, theme.get_text_color()));
+                    let visuals = ui.visuals();
+                    let bg_rect = shape.visual_bounding_rect().scale_from_center(1.1);
+                    let r = state.grid_size * 0.2;
+                    painter.add(visuals.popup_shadow.as_shape(bg_rect, r));
+                    painter.rect(
+                        bg_rect,
+                        r,
+                        visuals.panel_fill,
+                        visuals.window_stroke(),
+                        StrokeKind::Outside,
+                    );
+                    painter.add(shape);
+                }
+            }
+
+            InteractionState::RemovingPort(id) => {
+                let comp = bd.get_component(id).unwrap();
+
+                let rect = Self::get_selection_rect(comp, state);
+                painter.rect_stroke(
+                    rect,
+                    state.grid_size * 0.1,
+                    Stroke::new(state.grid_size * 0.15, Color32::RED.gamma_multiply(0.25)),
+                    StrokeKind::Outside,
+                );
+                if let Some((rotation, offset, _)) = comp.get_nearest_port_pos(state, true) {
+                    // TODO: refactor it
+                    let center = Port {
+                        align: rotation,
+                        offset: offset,
+                        name: "".into(),
+                    }
+                    .center(&comp.get_position(), comp.get_dimension(), state);
+                    painter.text(
+                        center,
+                        Align2::CENTER_CENTER,
+                        "×",
+                        FontId::monospace(state.grid_size),
+                        Color32::RED,
+                    );
+                }
+            }
+            InteractionState::CreatingNet => {
+                self.connection_builder.draw(bd, state, painter);
+            }
         }
-        self.connection_builder.draw(bd, state, painter);
     }
 
     fn get_action(comp: &Component, state: &FieldState) -> ComponentAction {
