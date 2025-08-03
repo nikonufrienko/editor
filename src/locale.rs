@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use sys_locale::get_locale;
 
@@ -46,6 +47,14 @@ pub struct Locale {
     pub file_hovered_message: &'static str,
     pub ongoing_export_to_svg: &'static str,
     pub file_save_error: &'static str,
+
+    // Components parameters:
+    pub inputs_number: &'static str,
+    pub sync_reset: &'static str,
+    pub async_reset: &'static str,
+    pub sync_reset_inverted: &'static str,
+    pub async_reset_inverted: &'static str,
+    pub enable_signal: &'static str,
 }
 
 pub const RU_LOCALE: Locale = Locale {
@@ -84,6 +93,12 @@ pub const RU_LOCALE: Locale = Locale {
     text_labels: "Текстовые метки",
     cell_size: "Размер клетки:",
     illegal_cell_size: "ОШИБКА: Неправильно задан размер клетки",
+    inputs_number: "Количество входов",
+    sync_reset: "Синхронный сброс",
+    async_reset: "Асинхронный сброс",
+    sync_reset_inverted: "Синхронный сброс инвертирован",
+    async_reset_inverted: "Асинхронный сброс инвертирован",
+    enable_signal: "Имеет вход сигнала включения (enable)",
 };
 
 pub const EN_LOCALE: Locale = Locale {
@@ -122,6 +137,12 @@ pub const EN_LOCALE: Locale = Locale {
     text_labels: "Text labels",
     cell_size: "Cell size:",
     illegal_cell_size: "ERROR: illegal cell size",
+    inputs_number: "Number of inputs",
+    sync_reset: "Synchronous reset",
+    async_reset: "Asynchronous reset",
+    sync_reset_inverted: "Synchronous reset inverted",
+    async_reset_inverted: "Asynchronous reset inverted",
+    enable_signal: "Enable signal",
 };
 
 pub fn get_system_default_locale() -> LocaleType {
@@ -145,7 +166,7 @@ pub fn get_system_default_locale() -> LocaleType {
     }
 }
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub enum LocaleType {
     En,
     Ru,

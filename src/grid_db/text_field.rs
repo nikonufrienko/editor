@@ -5,7 +5,8 @@ use crate::{
     grid_db::{ComponentAction, ComponentColor, GridPos, Rotation},
 };
 use egui::{
-    epaint::TextShape, pos2, vec2, Align2, Color32, FontId, Painter, Pos2, Rect, Shape, TextEdit, Theme, Ui, UiBuilder, Vec2
+    Align2, Color32, FontId, Painter, Pos2, Rect, Shape, TextEdit, Theme, Ui, UiBuilder, Vec2,
+    epaint::TextShape, pos2, vec2,
 };
 use serde::{Deserialize, Serialize};
 
@@ -17,7 +18,8 @@ pub struct TextField {
 }
 
 impl TextField {
-    pub const ACTIONS: &'static [ComponentAction] = &[ComponentAction::EditText, ComponentAction::Remove];
+    pub const ACTIONS: &'static [ComponentAction] =
+        &[ComponentAction::EditText, ComponentAction::Remove];
     pub const FONT_SCALE: f32 = 0.5;
     pub fn display(&self, state: &FieldState, painter: &Painter) {
         let screen_pos = state.grid_to_screen(&self.pos);
@@ -33,7 +35,7 @@ impl TextField {
             &painter.with_clip_rect(rect),
             Some(w as f32 * state.grid_size),
             Rotation::ROT0,
-            Align2::LEFT_TOP
+            Align2::LEFT_TOP,
         );
     }
 
@@ -59,7 +61,6 @@ impl TextField {
         )
     }
 }
-
 
 pub fn show_text_with_debounce(
     pos: Pos2,
@@ -102,11 +103,7 @@ pub fn show_text_with_debounce(
                     scaled_wrap,
                 )
             } else {
-                fonts.layout_no_wrap(
-                    text.clone(),
-                    FontId::monospace(prev_font_size),
-                    color,
-                )
+                fonts.layout_no_wrap(text.clone(), FontId::monospace(prev_font_size), color)
             }
         });
 
@@ -117,8 +114,7 @@ pub fn show_text_with_debounce(
         let aligned_pos = pos - offset;
 
         let mut shape = Shape::Text(
-            TextShape::new(pos2(0.0, 0.0), galley, color)
-                .with_angle(rotation.to_radians())
+            TextShape::new(pos2(0.0, 0.0), galley, color).with_angle(rotation.to_radians()),
         );
         shape.scale(scale);
         shape.translate(aligned_pos.to_vec2());
@@ -129,18 +125,9 @@ pub fn show_text_with_debounce(
 
         let galley = painter.fonts(|fonts| {
             if let Some(wrap) = wrap_width {
-                fonts.layout(
-                    text.clone(),
-                    FontId::monospace(font_size),
-                    color,
-                    wrap,
-                )
+                fonts.layout(text.clone(), FontId::monospace(font_size), color, wrap)
             } else {
-                fonts.layout_no_wrap(
-                    text.clone(),
-                    FontId::monospace(font_size),
-                    color,
-                )
+                fonts.layout_no_wrap(text.clone(), FontId::monospace(font_size), color)
             }
         });
 
@@ -149,8 +136,7 @@ pub fn show_text_with_debounce(
         let aligned_pos = pos - offset;
 
         let shape = Shape::Text(
-            TextShape::new(aligned_pos, galley, color)
-                .with_angle(rotation.to_radians())
+            TextShape::new(aligned_pos, galley, color).with_angle(rotation.to_radians()),
         );
         painter.add(shape);
     }

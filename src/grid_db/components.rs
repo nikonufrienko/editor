@@ -1,13 +1,10 @@
 use std::{
-    f32::consts::{PI},
+    f32::consts::PI,
     ops::{Add, AddAssign},
     vec,
 };
 
-use egui::{
-    Align2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Theme, Vec2,
-    epaint::{PathShape, PathStroke},
-    pos2, vec2,
+use egui::{epaint::{PathShape, PathStroke}, pos2, vec2, Align2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Theme, Vec2
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -15,7 +12,9 @@ use serde_with::serde_as;
 use crate::{
     field::{Field, FieldState, SVG_DUMMY_STATE},
     grid_db::{
-        grid_rect, mesh_line, show_text_with_debounce, svg_circle_filled, svg_line, svg_rect, svg_single_line_text, ComponentColor, GridBD, GridBDConnectionPoint, GridRect, Id, LodLevel, PrimitiveType, Rotation, TextField, STROKE_SCALE
+        ComponentColor, GridBD, GridBDConnectionPoint, GridRect, Id, LodLevel, PrimitiveType,
+        Rotation, STROKE_SCALE, TextField, grid_rect, mesh_line, show_text_with_debounce,
+        svg_circle_filled, svg_line, svg_rect, svg_single_line_text,
     },
 };
 
@@ -282,20 +281,32 @@ impl Unit {
     fn to_svg(&self, offset: GridPos, scale: f32, theme: Theme) -> String {
         let pos = self.pos + offset;
         let mut result = String::new();
-        result += &svg_rect(pos2(pos.x as f32 * scale, pos.y as f32 * scale), (self.width as f32 * scale, self.height as f32 * scale), STROKE_SCALE * scale, theme);
+        result += &svg_rect(
+            pos2(pos.x as f32 * scale, pos.y as f32 * scale),
+            (self.width as f32 * scale, self.height as f32 * scale),
+            STROKE_SCALE * scale,
+            theme,
+        );
         result += &"\n";
         for port in &self.ports {
-            let center: Pos2 = (port.center(&self.pos, (self.width, self.height), &SVG_DUMMY_STATE) + vec2(offset.x as f32, offset.y as f32)) * scale;
+            let center: Pos2 =
+                (port.center(&self.pos, (self.width, self.height), &SVG_DUMMY_STATE)
+                    + vec2(offset.x as f32, offset.y as f32))
+                    * scale;
             result += &svg_circle_filled(center, 0.1 * scale, theme.get_stroke_color());
             result += &"\n";
         }
         for p in &self.ports {
             let cell = p.get_cell(&self.pos, (self.width, self.height)) + offset;
-            let text_pos = pos2(cell.x as f32 * scale, cell.y as f32 * scale) + vec2(0.5, 0.5) * scale;
-            result += &svg_single_line_text(p.name.clone(), text_pos, 0.5 * scale,
-            p.align.to_text_rotation()
-            , theme,
-            p.align.to_text_align2()
+            let text_pos =
+                pos2(cell.x as f32 * scale, cell.y as f32 * scale) + vec2(0.5, 0.5) * scale;
+            result += &svg_single_line_text(
+                p.name.clone(),
+                text_pos,
+                0.5 * scale,
+                p.align.to_text_rotation(),
+                theme,
+                p.align.to_text_align2(),
             );
         }
         result
@@ -416,7 +427,7 @@ impl Component {
 
     pub fn get_available_actions(&self) -> &'static [ComponentAction] {
         match self {
-            Self::Primitive(_g) => PrimitiveComponent::ACTIONS,
+            Self::Primitive(p) => p.get_actions(),
             Self::Unit(_u) => Unit::ACTIONS,
             Self::TextField(_f) => TextField::ACTIONS,
         }
@@ -595,6 +606,16 @@ impl Component {
             _ => panic!("Can't remove port"),
         }
     }
+
+    pub fn show_customization_panel(&mut self, ui : &mut egui::Ui, locale: &'static crate::locale::Locale) -> Option<Self> {
+        match self {
+            Self::Primitive(p) => {
+                p.typ.show_customization_panel(ui, locale);
+                return None;
+            }
+            _ => panic!()
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -664,8 +685,17 @@ impl Port {
         let pos = self.center(unit_pos, dim, state);
         painter.circle_filled(pos, state.grid_size * Self::PORT_SCALE, stroke_color);
         if state.lod_level() == LodLevel::Max {
-            let text_pos: Pos2 = state.grid_to_screen(&self.get_cell(unit_pos, dim)) + vec2(0.5, 0.5) * state.grid_size;
-            show_text_with_debounce(text_pos, self.name.clone(), state, painter, None, self.align.to_text_rotation(), self.align.to_text_align2());
+            let text_pos: Pos2 = state.grid_to_screen(&self.get_cell(unit_pos, dim))
+                + vec2(0.5, 0.5) * state.grid_size;
+            show_text_with_debounce(
+                text_pos,
+                self.name.clone(),
+                state,
+                painter,
+                None,
+                self.align.to_text_rotation(),
+                self.align.to_text_align2(),
+            );
         }
     }
 
@@ -806,7 +836,8 @@ pub enum ComponentAction {
     AddPort,
     RemovePort,
     EditPort,
-    EditText
+    EditText,
+    Customize,
 }
 
 impl ComponentAction {
@@ -1002,6 +1033,15 @@ impl ComponentAction {
                     rect.center(),
                     Align2::CENTER_CENTER,
                     "📝",
+                    FontId::monospace(rect.height()),
+                    stroke.color,
+                );
+            }
+            Self::Customize => {
+                painter.text(
+                    rect.center(),
+                    Align2::CENTER_CENTER,
+                    "⚙",
                     FontId::monospace(rect.height()),
                     stroke.color,
                 );

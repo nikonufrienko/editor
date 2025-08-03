@@ -7,7 +7,7 @@ use std::{
     vec,
 };
 
-use egui::{Align2, Theme};
+use egui::{Align2, RichText, Theme};
 use egui::{
     Color32, Mesh, Painter, Pos2, Shape, Stroke,
     ahash::{HashMap, HashMapExt},
@@ -17,6 +17,7 @@ use egui::{
 use serde::{Deserialize, Serialize};
 
 use crate::grid_db::{ComponentColor, STROKE_SCALE, show_text_with_debounce, svg_single_line_text};
+use crate::locale::{Locale};
 use crate::{
     field::{Field, FieldState, SVG_DUMMY_STATE},
     grid_db::{svg_circle_filled, svg_line, svg_polygon, tesselate_polygon},
@@ -151,11 +152,25 @@ pub struct PrimitiveComponent {
 }
 
 impl PrimitiveComponent {
-    pub const ACTIONS: &'static [ComponentAction] = &[
-        ComponentAction::RotateDown,
-        ComponentAction::RotateUp,
-        ComponentAction::Remove,
-    ];
+    pub fn get_actions(&self) -> &'static [ComponentAction] {
+        if self.typ.is_customizable() {
+            &[
+                ComponentAction::RotateDown,
+                ComponentAction::RotateUp,
+                ComponentAction::Customize,
+                ComponentAction::Remove,
+            ]
+        }
+        else {
+            &[
+                ComponentAction::RotateDown,
+                ComponentAction::RotateUp,
+                ComponentAction::Remove,
+            ]
+        }
+
+    }
+
     const CONNECTION_SCALE: f32 = 0.1;
 
     pub fn get_dimension(&self) -> (i32, i32) {
@@ -302,7 +317,7 @@ impl PrimitiveComponent {
                     painter,
                     None,
                     rotation + self.rotation,
-                    Align2::LEFT_TOP
+                    Align2::LEFT_TOP,
                 );
             }
         }
@@ -366,7 +381,7 @@ impl PrimitiveComponent {
                     font_size,
                     rotation + self.rotation,
                     theme,
-                    Align2::LEFT_TOP
+                    Align2::LEFT_TOP,
                 ) + &"\n"),
             );
         }
@@ -1090,10 +1105,10 @@ impl PrimitiveType {
             ],
             vec![pos2(1.05, 3.0), pos2(2.0, 3.5), pos2(1.05, 4.0)],
         ]);
-        if params.sync_reset_inverted {
+        if params.has_sync_reset && params.sync_reset_inverted {
             result.push(Self::get_circle_points(pos2(1.0, 2.5), 0.17, lod_level));
         }
-        if params.async_reset_inverted {
+        if params.has_async_reset && params.async_reset_inverted {
             result.push(Self::get_circle_points(pos2(2.5, 1.0), 0.17, lod_level));
         }
         result
@@ -1281,6 +1296,68 @@ impl PrimitiveType {
             Self::DFF(params) => Self::get_dff_text_fields(params),
             _ => vec![],
         }
+    }
+
+    pub fn is_customizable(&self) -> bool {
+        match self {
+            Self::And(_) => true,
+            Self::Or(_) => true,
+            Self::Xor(_) => true,
+            Self::Nand(_) => true,
+            Self::Mux(_) => true,
+            Self::DFF(_) => true,
+
+            Self::Not => false,
+            Self::Input => false,
+            Self::Output => false,
+            Self::Point => false,
+        }
+    }
+
+    pub fn show_customization_panel(&mut self, ui : &mut egui::Ui, locale: &'static Locale) {
+        match self {
+            Self::And(n_inputs) | Self::Or(n_inputs) | Self::Xor(n_inputs) | Self::Nand(n_inputs) | Self::Mux(n_inputs) => {
+                let mut buffer = n_inputs.to_string();
+                ui.horizontal(|ui| {
+                    ui.label(format!("{}:", locale.inputs_number));
+
+                    if ui.add(egui::TextEdit::singleline(&mut buffer).desired_width(50.0)).changed() {
+                        match buffer.parse::<usize>() {
+                            Ok(num) => {
+                                if num < 100 && num >= 2 {
+                                    *n_inputs = num
+                                }
+                            },
+                            _ => {
+                                if buffer.is_empty() {
+                                    *n_inputs = 2
+                                }
+                            }
+                        }
+                    }
+                        if ui.button(RichText::new("+").monospace()).clicked() && *n_inputs < 100 {
+                            *n_inputs += 1;
+                        }
+                        if ui.button(RichText::new("-").monospace()).clicked() && *n_inputs > 2 {
+                            *n_inputs -= 1;
+                        }
+                });
+            },
+            Self::DFF(params) => {
+                ui.checkbox(&mut params.has_sync_reset, locale.sync_reset);
+                if params.has_sync_reset {
+                    ui.checkbox(&mut params.sync_reset_inverted, locale.sync_reset_inverted);
+                }
+                ui.checkbox(&mut params.has_async_reset, locale.async_reset);
+                if params.has_async_reset {
+                    ui.checkbox(&mut params.async_reset_inverted, locale.async_reset_inverted);
+
+                }
+                ui.checkbox(&mut params.has_enable, locale.enable_signal);
+            },
+            _ => {}
+        }
+
     }
 }
 

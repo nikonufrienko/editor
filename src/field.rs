@@ -2,21 +2,34 @@ use egui::{
     Color32, CursorIcon, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind,
     Vec2, pos2, vec2,
 };
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
-    grid_db::{GridBD, GridPos, LodLevel, grid_pos, grid_rect},
-    interaction_manager::{InteractionManager, draw_component_drag_preview},
+    grid_db::{grid_pos, grid_rect, GridBD, GridPos, LodLevel},
+    interaction_manager::{draw_component_drag_preview, InteractionManager},
+    locale::{Locale},
     preview::DragComponentResponse,
 };
 
 use web_time::{Duration, Instant};
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum GridType {
     Dots,
     Cells,
     None,
+}
+
+pub const SUPPORTED_GRID_TYPES: &[GridType] = &[GridType::Cells, GridType::Dots, GridType::None];
+impl GridType {
+    pub fn get_name(&self, locale: &'static Locale) -> &'static str {
+        match self {
+            Self::Cells => locale.cells,
+            Self::Dots => locale.dots,
+            Self::None => locale.empty,
+        }
+    }
 }
 
 pub struct FieldState {
@@ -245,13 +258,13 @@ impl Field {
     }
 
     // Update state of field
-    fn refresh(&mut self, ui: &mut egui::Ui, response: &Response, allocated_rect: Rect) {
+    fn refresh(&mut self, ui: &mut egui::Ui, response: &Response, allocated_rect: Rect, locale: &'static Locale) {
         let delta_vec = allocated_rect.min - self.state.rect.min;
         self.state.offset -= delta_vec;
         self.state.rect = allocated_rect;
         let ongoing_interaction =
             self.interaction_manager
-                .refresh(&mut self.grid_db, &self.state, response, ui);
+                .refresh(&mut self.grid_db, &self.state, response, ui, locale);
         if response.hovered() {
             let zoom_delta = ui.input(|i| i.zoom_delta());
             let new_scale = (self.state.scale * zoom_delta).clamp(Self::MIN_SCALE, Self::MAX_SCALE);
@@ -332,11 +345,11 @@ impl Field {
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, locale: &'static Locale) {
         let theme = ui.ctx().theme();
         let allocated_rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(self.state.rect, Sense::drag().union(Sense::all()));
-        self.refresh(ui, &response, allocated_rect);
+        self.refresh(ui, &response, allocated_rect, locale);
         self.display_grid(ui);
         let grid_rect = grid_rect(
             0,

@@ -1,5 +1,5 @@
 use egui::epaint::Vertex;
-use egui::{pos2, Align, Align2, Color32, Mesh, Painter, Pos2, Rect, Stroke, Theme, Vec2};
+use egui::{Align, Align2, Color32, Mesh, Painter, Pos2, Rect, Stroke, Theme, Vec2, pos2};
 use lyon::geom::point;
 use lyon::{
     path::{LineCap, LineJoin, Path},
@@ -12,7 +12,7 @@ use lyon::{
 use std::cell::RefCell;
 
 use crate::field::FieldState;
-use crate::grid_db::{Rotation};
+use crate::grid_db::Rotation;
 
 pub fn tesselate_polygon(
     points: &Vec<Pos2>,
@@ -304,16 +304,11 @@ pub fn svg_single_line_text(
     )
 }
 
-pub fn svg_rect(
-    pos : Pos2,
-    (width, height) : (f32, f32),
-    stroke_w: f32,
-    theme: Theme,
-) -> String {
+pub fn svg_rect(pos: Pos2, (width, height): (f32, f32), stroke_w: f32, theme: Theme) -> String {
     let fill_color = theme.get_fill_color().to_hex();
     let stroke_color = theme.get_stroke_color().to_hex();
     format!(
-    r#"
+        r#"
     <rect
         x="{}"
         y="{}"
@@ -322,7 +317,9 @@ pub fn svg_rect(
         fill="{fill_color}"
         stroke="{stroke_color}"
         stroke-width="{stroke_w}"
-    />"#, pos.x, pos.y, )
+    />"#,
+        pos.x, pos.y,
+    )
 }
 
 #[allow(unused)]

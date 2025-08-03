@@ -1,15 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use eframe::egui;
+use eframe::{Storage, egui};
 use egui::{
     CursorIcon, Id, KeyboardShortcut, LayerId, Modifiers, Rect, Sense, Stroke, Theme, vec2,
 };
 
 use crate::{
-    field::{Field, GridType},
+    field::{Field, SUPPORTED_GRID_TYPES},
     file_managment::FileManager,
     helpers::Helpers,
-    locale::{SUPPORTED_LOCALES, get_system_default_locale},
+    locale::SUPPORTED_LOCALES,
     preview::PreviewPanel,
+    settings::{AppSettings, GetName, SUPPORTED_THEMES},
 };
 
 mod component_lib;
@@ -20,6 +21,7 @@ mod helpers;
 mod interaction_manager;
 mod locale;
 mod preview;
+mod settings;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
@@ -33,7 +35,7 @@ fn main() {
     _ = eframe::run_native(
         "Editor",
         options,
-        Box::new(|_| Ok(Box::new(EditorApp::new()))),
+        Box::new(|app_cc| Ok(Box::new(EditorApp::new(app_cc)))),
     );
 }
 
@@ -65,7 +67,7 @@ fn main() {
             .start(
                 canvas,
                 web_options,
-                Box::new(|_cc| Ok(Box::new(EditorApp::new()))),
+                Box::new(|app_cc| Ok(Box::new(EditorApp::new(app_cc)))),
             )
             .await;
 
@@ -97,15 +99,24 @@ struct EditorApp {
 }
 
 impl EditorApp {
-    fn new() -> Self {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let settings: AppSettings = cc
+            .storage
+            .and_then(|s| s.get_string("settings"))
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default();
+
+        let mut field = Field::new();
+        field.grid_type = settings.grid_type;
+
         EditorApp {
-            field: Field::new(),
+            field: field,
             preview_window: PreviewPanel::new(),
-            locale: get_system_default_locale(),
+            locale: settings.locale,
             file_manager: FileManager::new(),
             helpers: Helpers::new(),
             file_name: "Untitled".into(),
-            theme: Theme::Dark,
+            theme: settings.theme.into(),
         }
     }
 }
@@ -138,26 +149,27 @@ impl eframe::App for EditorApp {
                     });
                     ui.menu_button(locale.view, |ui| {
                         ui.menu_button(locale.grid, |ui| {
-                            ui.radio_value(
-                                &mut self.field.grid_type,
-                                GridType::Cells,
-                                locale.cells,
-                            );
-                            ui.radio_value(&mut self.field.grid_type, GridType::Dots, locale.dots);
-                            ui.radio_value(&mut self.field.grid_type, GridType::None, locale.empty);
+                            SUPPORTED_GRID_TYPES.iter().for_each(|grid_type| {
+                                ui.radio_value(
+                                    &mut self.field.grid_type,
+                                    *grid_type,
+                                    grid_type.get_name(locale),
+                                );
+                            });
                         });
                         ui.menu_button(locale.language, |ui| {
-                            for other_local in SUPPORTED_LOCALES {
+                            SUPPORTED_LOCALES.iter().for_each(|locale| {
                                 ui.radio_value(
                                     &mut self.locale,
-                                    *other_local,
-                                    other_local.locale().locale_name,
+                                    *locale,
+                                    locale.locale().locale_name,
                                 );
-                            }
+                            });
                         });
                         ui.menu_button(locale.theme, |ui| {
-                            ui.radio_value(&mut self.theme, Theme::Dark, locale.theme_dark);
-                            ui.radio_value(&mut self.theme, Theme::Light, locale.theme_light);
+                            SUPPORTED_THEMES.iter().for_each(|theme| {
+                                ui.radio_value(&mut self.theme, *theme, theme.get_name(locale));
+                            });
                         });
                     });
                     ui.menu_button(locale.help, |ui| {
@@ -168,7 +180,10 @@ impl eframe::App for EditorApp {
                     });
                     if ui.available_width() >= ui.available_height() * 2.5 + 40.0 {
                         ui.add_space(10.0);
-                        ui.add(egui::Label::new(locale.project_name.to_string() + &":").selectable(false));
+                        ui.add(
+                            egui::Label::new(locale.project_name.to_string() + &":")
+                                .selectable(false),
+                        );
                         let w = ui.available_width();
                         let h = ui.available_height();
                         ui.add(
@@ -192,7 +207,7 @@ impl eframe::App for EditorApp {
             locale,
         ));
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.field.show(ui);
+            self.field.show(ui, locale);
         });
         self.helpers.show(ctx, self.locale);
 
@@ -202,6 +217,16 @@ impl eframe::App for EditorApp {
         }) {
             self.file_manager
                 .save_file(&self.field.grid_db, &self.file_name);
+        }
+    }
+
+    fn save(&mut self, storage: &mut dyn Storage) {
+        if let Ok(value) = serde_json::to_string(&AppSettings {
+            grid_type: self.field.grid_type,
+            locale: self.locale,
+            theme: self.theme.into(),
+        }) {
+            storage.set_string("settings", value);
         }
     }
 }
