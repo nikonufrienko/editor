@@ -1,8 +1,14 @@
 use std::{
-    collections::HashMap, f32::consts::PI, ops::{Add, AddAssign}, vec
+    collections::HashMap,
+    f32::consts::PI,
+    ops::{Add, AddAssign},
+    vec,
 };
 
-use egui::{epaint::{PathShape, PathStroke}, pos2, vec2, Align2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Theme, Vec2
+use egui::{
+    Align2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Theme, Vec2,
+    epaint::{PathShape, PathStroke},
+    pos2, vec2,
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -469,18 +475,15 @@ impl Component {
 
     pub fn get_connections_diff(&self, other: &Component) -> HashMap<Id, Option<Id>> {
         match self {
-            Component::Primitive(self_p) => {
-                match other {
-                    Component::Primitive(other_p) => {
-                        return self_p.typ.get_connections_diff(&other_p.typ);
-                    }
-                    _ => panic!("Illegal type")
+            Component::Primitive(self_p) => match other {
+                Component::Primitive(other_p) => {
+                    return self_p.typ.get_connections_diff(&other_p.typ);
                 }
+                _ => panic!("Illegal type"),
             },
             _ => HashMap::new(),
         }
     }
-
 
     pub fn is_connection_hovered(&self, connection_id: Id, state: &FieldState) -> bool {
         match self {
@@ -620,13 +623,17 @@ impl Component {
         }
     }
 
-    pub fn show_customization_panel(&mut self, ui : &mut egui::Ui, locale: &'static crate::locale::Locale) -> Option<Self> {
+    pub fn show_customization_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        locale: &'static crate::locale::Locale,
+    ) -> Option<Self> {
         match self {
             Self::Primitive(p) => {
                 p.typ.show_customization_panel(ui, locale);
                 return None;
             }
-            _ => panic!()
+            _ => panic!(),
         }
     }
 }

@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
-    grid_db::{grid_pos, grid_rect, GridBD, GridPos, LodLevel},
-    interaction_manager::{draw_component_drag_preview, InteractionManager},
-    locale::{Locale},
+    grid_db::{GridBD, GridPos, LodLevel, grid_pos, grid_rect},
+    interaction_manager::{InteractionManager, draw_component_drag_preview},
+    locale::Locale,
     preview::DragComponentResponse,
 };
 
@@ -258,7 +258,13 @@ impl Field {
     }
 
     // Update state of field
-    fn refresh(&mut self, ui: &mut egui::Ui, response: &Response, allocated_rect: Rect, locale: &'static Locale) {
+    fn refresh(
+        &mut self,
+        ui: &mut egui::Ui,
+        response: &Response,
+        allocated_rect: Rect,
+        locale: &'static Locale,
+    ) {
         let delta_vec = allocated_rect.min - self.state.rect.min;
         self.state.offset -= delta_vec;
         self.state.rect = allocated_rect;

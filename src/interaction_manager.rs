@@ -1,13 +1,16 @@
 use std::collections::LinkedList;
 
 use crate::{
-    field::{blocked_cell, filled_cells, FieldState},
+    field::{FieldState, blocked_cell, filled_cells},
     grid_db::{
-        grid_pos, show_text_edit, Component, ComponentAction, ComponentColor, GridBD, GridBDConnectionPoint, GridPos, Id, Net, Port, RotationDirection
-    }, locale::Locale,
+        Component, ComponentAction, ComponentColor, GridBD, GridBDConnectionPoint, GridPos, Id,
+        Net, Port, RotationDirection, grid_pos, show_text_edit,
+    },
+    locale::Locale,
 };
 use egui::{
-    epaint::TextShape, vec2, Align2, Color32, CursorIcon, FontId, KeyboardShortcut, Modifiers, Painter, Pos2, Rect, Response, Shape, Stroke, StrokeKind, Ui, Vec2
+    Align2, Color32, CursorIcon, FontId, KeyboardShortcut, Modifiers, Painter, Pos2, Rect,
+    Response, Shape, Stroke, StrokeKind, Ui, Vec2, epaint::TextShape, vec2,
 };
 
 pub fn draw_component_drag_preview(
@@ -64,7 +67,10 @@ enum InteractionState {
     AddingPort(Id),
     RemovingPort(Id),
     EditingPort(Id),
-    CustomizeComponent{id: Id, buffer: Component}
+    CustomizeComponent {
+        id: Id,
+        buffer: Component,
+    },
 }
 
 pub struct InteractionManager {
@@ -523,15 +529,23 @@ impl InteractionManager {
                     *net_id,
                     bd,
                     if net.start_point.component_id == comp_id {
-                        let p0 = old_comp.get_connection_dock_cell(net.start_point.connection_id).unwrap();
-                        let p1 = customized_comp.get_connection_dock_cell(new_net.start_point.connection_id).unwrap();
+                        let p0 = old_comp
+                            .get_connection_dock_cell(net.start_point.connection_id)
+                            .unwrap();
+                        let p1 = customized_comp
+                            .get_connection_dock_cell(new_net.start_point.connection_id)
+                            .unwrap();
                         (p1.x - p0.x, p1.y - p0.y)
                     } else {
                         (0, 0)
                     },
                     if net.end_point.component_id == comp_id {
-                        let p0 = old_comp.get_connection_dock_cell(net.end_point.connection_id).unwrap();
-                        let p1 = customized_comp.get_connection_dock_cell(new_net.end_point.connection_id).unwrap();
+                        let p0 = old_comp
+                            .get_connection_dock_cell(net.end_point.connection_id)
+                            .unwrap();
+                        let p1 = customized_comp
+                            .get_connection_dock_cell(new_net.end_point.connection_id)
+                            .unwrap();
                         (p1.x - p0.x, p1.y - p0.y)
                     } else {
                         (0, 0)
@@ -539,18 +553,23 @@ impl InteractionManager {
                 )
             } else {
                 // Remove net:
-                Some(
-                    Transaction::ChangeNet { net_id: *net_id, old_net: None, new_net: None }
-                )
+                Some(Transaction::ChangeNet {
+                    net_id: *net_id,
+                    old_net: None,
+                    new_net: None,
+                })
             };
 
             if let Some(t) = transaction {
                 transactions.push_back(t);
             }
         }
-        transactions.push_back(Transaction::ChangeComponent { comp_id, old_comp: None, new_comp: Some(customized_comp) });
+        transactions.push_back(Transaction::ChangeComponent {
+            comp_id,
+            old_comp: None,
+            new_comp: Some(customized_comp),
+        });
         self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
-
     }
 
     /// Refreshes action state.
@@ -561,7 +580,7 @@ impl InteractionManager {
         state: &FieldState,
         response: &Response,
         ui: &egui::Ui,
-        locale: &'static Locale
+        locale: &'static Locale,
     ) -> bool {
         match self.state {
             InteractionState::EditingText {
@@ -718,7 +737,10 @@ impl InteractionManager {
                             return true;
                         }
                         ComponentAction::Customize => {
-                            self.state = InteractionState::CustomizeComponent { id: *id, buffer: bd.get_component(id).unwrap().clone() };
+                            self.state = InteractionState::CustomizeComponent {
+                                id: *id,
+                                buffer: bd.get_component(id).unwrap().clone(),
+                            };
                             return true;
                         }
                         _ => {}
@@ -888,18 +910,23 @@ impl InteractionManager {
                 }
             }
             InteractionState::CustomizeComponent { id: _, buffer: _ } => {
-                let done = if let InteractionState::CustomizeComponent { id: _, buffer } = &mut self.state {
+                let done = if let InteractionState::CustomizeComponent { id: _, buffer } =
+                    &mut self.state
+                {
                     egui::modal::Modal::new("customizing".into())
-                    .show(ui.ctx(), |ui| {
-                        buffer.show_customization_panel(ui, locale);
-                        ui.button("Ok").clicked()
-                    }).inner
+                        .show(ui.ctx(), |ui| {
+                            buffer.show_customization_panel(ui, locale);
+                            ui.button("Ok").clicked()
+                        })
+                        .inner
                 } else {
                     panic!()
                 };
 
                 if done {
-                    if let InteractionState::CustomizeComponent { id, buffer } = std::mem::replace(&mut self.state, InteractionState::Idle) {
+                    if let InteractionState::CustomizeComponent { id, buffer } =
+                        std::mem::replace(&mut self.state, InteractionState::Idle)
+                    {
                         self.apply_customization(bd, id, buffer);
                         return true;
                     } else {

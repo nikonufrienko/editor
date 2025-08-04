@@ -9,15 +9,12 @@ use std::{
 };
 
 use egui::{Align2, RichText, Theme};
-use egui::{
-    Color32, Mesh, Painter, Pos2, Shape, Stroke,
-    emath::TSTransform,
-    pos2, vec2,
-};
+use egui::{Color32, Mesh, Painter, Pos2, Shape, Stroke, emath::TSTransform, pos2, vec2};
 use serde::{Deserialize, Serialize};
 
 use crate::grid_db::{ComponentColor, STROKE_SCALE, show_text_with_debounce, svg_single_line_text};
-use crate::locale::{Locale};
+use crate::locale::Locale;
+
 use crate::{
     field::{Field, FieldState, SVG_DUMMY_STATE},
     grid_db::{svg_circle_filled, svg_line, svg_polygon, tesselate_polygon},
@@ -160,15 +157,13 @@ impl PrimitiveComponent {
                 ComponentAction::Customize,
                 ComponentAction::Remove,
             ]
-        }
-        else {
+        } else {
             &[
                 ComponentAction::RotateDown,
                 ComponentAction::RotateUp,
                 ComponentAction::Remove,
             ]
         }
-
     }
 
     const CONNECTION_SCALE: f32 = 0.1;
@@ -494,8 +489,7 @@ impl PrimitiveType {
             // Output:
             let raw_dim = Self::get_and_gate_dimension_raw(n_inputs);
             *primitive_pos + grid_pos(raw_dim.0, raw_dim.1 / 2)
-        }
-        else {
+        } else {
             // Inputs:
             if n_inputs % 2 == 0 {
                 *primitive_pos + grid_pos(-1, 2 * (connection_id - 1) as i32)
@@ -1309,8 +1303,12 @@ impl PrimitiveType {
 
     pub fn is_customizable(&self) -> bool {
         match self {
-            Self::And(_) | Self::Or(_) | Self::Xor(_) |
-            Self::Nand(_) | Self::Mux(_) | Self::DFF(_) => true,
+            Self::And(_)
+            | Self::Or(_)
+            | Self::Xor(_)
+            | Self::Nand(_)
+            | Self::Mux(_)
+            | Self::DFF(_) => true,
 
             Self::Not | Self::Input | Self::Output | Self::Point => false,
         }
@@ -1319,9 +1317,15 @@ impl PrimitiveType {
     /// Returns a list of connection permutations.
     pub fn get_connections_diff(&self, other: &Self) -> HashMap<Id, Option<Id>> {
         match self {
-            Self::And(_) | Self::Or(_) | Self::Xor(_) |
-            Self::Nand(_) | Self::Mux(_) |
-            Self::Not | Self::Input | Self::Output | Self::Point => {
+            Self::And(_)
+            | Self::Or(_)
+            | Self::Xor(_)
+            | Self::Nand(_)
+            | Self::Mux(_)
+            | Self::Not
+            | Self::Input
+            | Self::Output
+            | Self::Point => {
                 let mut result = HashMap::new();
                 let n0 = self.get_connections_number();
                 let n1 = other.get_connections_number();
@@ -1332,49 +1336,56 @@ impl PrimitiveType {
                     }
                 }
                 return result;
-            },
-            Self::DFF(self_params) => {
-                match other {
-                    Self::DFF(other_params) => {
-                        let mut self_port_map = HashMap::new();
-                        let self_n_ports = Self::get_dff_connections_number(self_params);
-                        for id in 0..self_n_ports {
-                            self_port_map.insert(DFFPort::from_id(self_params, id).unwrap(), id);
-                        }
-                        let mut other_port_map = HashMap::new();
-                        let other_n_ports = Self::get_dff_connections_number(other_params);
-                        for id in 0..other_n_ports {
-                            other_port_map.insert(DFFPort::from_id(other_params, id).unwrap(), id);
-                        }
-                        let mut result = HashMap::new();
-                        for (port, id) in &self_port_map {
-                            let other_id = other_port_map.get(port).cloned();
-                            if other_id != Some(*id) {
-                                result.insert(*id, other_id);
-                            }
-                        }
-                        return result;
-                    }
-                    _ => {panic!("Illegal type")}
-                }
             }
+            Self::DFF(self_params) => match other {
+                Self::DFF(other_params) => {
+                    let mut self_port_map = HashMap::new();
+                    let self_n_ports = Self::get_dff_connections_number(self_params);
+                    for id in 0..self_n_ports {
+                        self_port_map.insert(DFFPort::from_id(self_params, id).unwrap(), id);
+                    }
+                    let mut other_port_map = HashMap::new();
+                    let other_n_ports = Self::get_dff_connections_number(other_params);
+                    for id in 0..other_n_ports {
+                        other_port_map.insert(DFFPort::from_id(other_params, id).unwrap(), id);
+                    }
+                    let mut result = HashMap::new();
+                    for (port, id) in &self_port_map {
+                        let other_id = other_port_map.get(port).cloned();
+                        if other_id != Some(*id) {
+                            result.insert(*id, other_id);
+                        }
+                    }
+                    return result;
+                }
+                _ => {
+                    panic!("Illegal type")
+                }
+            },
         }
     }
 
-    pub fn show_customization_panel(&mut self, ui : &mut egui::Ui, locale: &'static Locale) {
+    pub fn show_customization_panel(&mut self, ui: &mut egui::Ui, locale: &'static Locale) {
         match self {
-            Self::And(n_inputs) | Self::Or(n_inputs) | Self::Xor(n_inputs) | Self::Nand(n_inputs) | Self::Mux(n_inputs) => {
+            Self::And(n_inputs)
+            | Self::Or(n_inputs)
+            | Self::Xor(n_inputs)
+            | Self::Nand(n_inputs)
+            | Self::Mux(n_inputs) => {
                 let mut buffer = n_inputs.to_string();
                 ui.horizontal(|ui| {
                     ui.label(format!("{}:", locale.inputs_number));
 
-                    if ui.add(egui::TextEdit::singleline(&mut buffer).desired_width(50.0)).changed() {
+                    if ui
+                        .add(egui::TextEdit::singleline(&mut buffer).desired_width(50.0))
+                        .changed()
+                    {
                         match buffer.parse::<usize>() {
                             Ok(num) => {
                                 if num < 100 && num >= 2 {
                                     *n_inputs = num
                                 }
-                            },
+                            }
                             _ => {
                                 if buffer.is_empty() {
                                     *n_inputs = 2
@@ -1382,14 +1393,14 @@ impl PrimitiveType {
                             }
                         }
                     }
-                        if ui.button(RichText::new("+").monospace()).clicked() && *n_inputs < 100 {
-                            *n_inputs += 1;
-                        }
-                        if ui.button(RichText::new("-").monospace()).clicked() && *n_inputs > 2 {
-                            *n_inputs -= 1;
-                        }
+                    if ui.button(RichText::new("+").monospace()).clicked() && *n_inputs < 100 {
+                        *n_inputs += 1;
+                    }
+                    if ui.button(RichText::new("-").monospace()).clicked() && *n_inputs > 2 {
+                        *n_inputs -= 1;
+                    }
                 });
-            },
+            }
             Self::DFF(params) => {
                 ui.checkbox(&mut params.has_sync_reset, locale.sync_reset);
                 if params.has_sync_reset {
@@ -1397,11 +1408,13 @@ impl PrimitiveType {
                 }
                 ui.checkbox(&mut params.has_async_reset, locale.async_reset);
                 if params.has_async_reset {
-                    ui.checkbox(&mut params.async_reset_inverted, locale.async_reset_inverted);
-
+                    ui.checkbox(
+                        &mut params.async_reset_inverted,
+                        locale.async_reset_inverted,
+                    );
                 }
                 ui.checkbox(&mut params.has_enable, locale.enable_signal);
-            },
+            }
             _ => {}
         }
     }

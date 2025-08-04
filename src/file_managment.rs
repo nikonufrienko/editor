@@ -6,7 +6,7 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 
-use egui::{Theme, mutex::Mutex};
+use egui::{Image, ImageSource, SizeHint, TextureOptions, Theme, Vec2, mutex::Mutex, vec2};
 
 use crate::{grid_db::GridBD, locale::Locale};
 
@@ -110,48 +110,70 @@ impl FileManager {
     ) {
         if self.state != FileManagerState::None {
             // Display state modal
-            egui::modal::Modal::new("FileManager".into()).show(ctx, |ui| match &mut self.state {
-                FileManagerState::SaveFile => {
-                    ui.label(locale.saving_file);
-                }
-                FileManagerState::OpenFile => {
-                    ui.label(locale.opening_file);
-                }
-                FileManagerState::Error(err) => {
-                    ui.horizontal(|ui| {
-                        ui.label(*err);
-                    });
-                    if ui.button("OK").clicked() {
-                        self.done.store(true, std::sync::atomic::Ordering::Relaxed);
+            egui::modal::Modal::new("FileManager".into()).show(ctx, |ui| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                match &mut self.state {
+                    FileManagerState::SaveFile => {
+                        ui.label(locale.saving_file);
                     }
-                }
-                FileManagerState::ExportSVG => {
-                    ui.label(locale.ongoing_export_to_svg);
-                }
-                FileManagerState::ExportSVGDialog {
-                    export_theme,
-                    cell_size,
-                } => {
-                    ui.horizontal(|ui| {
-                        ui.label(locale.theme);
-                        ui.radio_value(export_theme, Theme::Dark, locale.theme_dark);
-                        ui.radio_value(export_theme, Theme::Light, locale.theme_light);
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label(locale.cell_size);
-                        ui.add(egui::TextEdit::singleline(cell_size).desired_width(30.0))
-                    });
-                    if ui.button("OK").clicked() {
-                        let theme = *export_theme;
-                        match cell_size.parse::<f32>() {
-                            Ok(cell_size) => self.export_to_svg(bd, file_name, theme, cell_size),
-                            Err(_) => {
-                                self.state = FileManagerState::Error(locale.illegal_cell_size)
+                    FileManagerState::OpenFile => {
+                        ui.label(locale.opening_file);
+                    }
+                    FileManagerState::Error(err) => {
+                        ui.horizontal(|ui| {
+                            ui.label(*err);
+                        });
+                        if ui.button("OK").clicked() {
+                            self.done.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                    FileManagerState::ExportSVG => {
+                        ui.label(locale.ongoing_export_to_svg);
+                    }
+                    FileManagerState::ExportSVGDialog {
+                        export_theme,
+                        cell_size,
+                    } => {
+                        let Vec2 { x, y } = ctx.available_rect().size();
+
+                        ui.set_min_size(vec2(x.min(y), x.min(y)) * 0.5);
+                        ui.set_max_size(vec2(x.min(y), x.min(y)) * 0.5);
+                        let mut valid = true;
+                        ui.horizontal(|ui| {
+                            ui.label(locale.theme);
+                            let change0 = ui
+                                .radio_value(export_theme, Theme::Dark, locale.theme_dark)
+                                .changed();
+                            let change1 = ui
+                                .radio_value(export_theme, Theme::Light, locale.theme_light)
+                                .changed();
+                            if change0 || change1 {
+                                Self::reload_preview(ui.ctx(), bd, *export_theme);
+                                valid = false;
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label(locale.cell_size);
+                            ui.add(egui::TextEdit::singleline(cell_size).desired_width(30.0))
+                        });
+                        if valid {
+                            ui.add(Image::new(ImageSource::Uri("bytes://preview.svg".into())));
+                        }
+                        ui.add_space((ui.available_height() - 20.0).max(0.0));
+                        let theme = export_theme.clone();
+                        if ui.button("OK").clicked() {
+                            match cell_size.parse::<f32>() {
+                                Ok(cell_size) => {
+                                    self.export_to_svg(bd, file_name, theme, cell_size)
+                                }
+                                Err(_) => {
+                                    self.state = FileManagerState::Error(locale.illegal_cell_size)
+                                }
                             }
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
             });
             match self.state {
                 FileManagerState::OpenFile => {
@@ -285,14 +307,30 @@ impl FileManager {
                 });
             }
             #[cfg(target_arch = "wasm32")]
-            Self::save_file_wasm(default_file_name, data);
-            self.done.store(true, std::sync::atomic::Ordering::Relaxed);
+            {
+                Self::save_file_wasm(default_file_name, data);
+                self.done.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
         } else {
             // self.errors.lock().push(error_msg.into());
         }
     }
 
-    pub fn start_export_svg(&mut self, default_theme: Theme) {
+    fn reload_preview(ctx: &egui::Context, bd: &GridBD, theme: Theme) {
+        ctx.loaders().bytes.lock().iter().for_each(|loader| {
+            loader.forget("bytes://preview.svg");
+        });
+        let svg = bd.dump_to_svg(theme, 100.0);
+        let bytes = svg.as_bytes();
+        _ = egui::ImageSource::Bytes {
+            uri: format!("bytes://preview.svg").into(),
+            bytes: egui::load::Bytes::Shared(Arc::from(bytes)),
+        }
+        .load(ctx, TextureOptions::default(), SizeHint::Scale(1.0.into()));
+    }
+
+    pub fn start_export_svg(&mut self, ctx: &egui::Context, bd: &GridBD, default_theme: Theme) {
+        Self::reload_preview(ctx, bd, default_theme);
         self.state = FileManagerState::ExportSVGDialog {
             export_theme: default_theme,
             cell_size: "40".into(),
@@ -322,52 +360,5 @@ impl FileManager {
             Self::save_file_wasm(default_file_name, data);
             self.done.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        // TODO: move to preview_svg
-        /*
-        #[cfg(target_arch = "wasm32")]
-        {
-            let data = bd.dump_to_svg(theme, grid_size);
-            use eframe::wasm_bindgen::JsCast;
-            use eframe::wasm_bindgen::prelude::Closure;
-            use web_sys::{Blob, BlobPropertyBag, Url};
-
-            let mut blob_properties = BlobPropertyBag::new();
-            blob_properties.type_("image/svg+xml");
-
-            let blob = Blob::new_with_str_sequence_and_options(
-                &js_sys::Array::of1(&js_sys::JsString::from(data)),
-                &blob_properties,
-            )
-            .unwrap();
-
-            let url = Url::create_object_url_with_blob(&blob).unwrap();
-
-            let window = web_sys::window().unwrap();
-            let opened = window.open_with_url_and_target(&url, "_blank").unwrap();
-
-            if opened.is_some() {
-                let closure = Closure::once(move || {
-                    Url::revoke_object_url(&url).unwrap();
-                });
-
-                window
-                    .set_timeout_with_callback_and_timeout_and_arguments_0(
-                        closure.as_ref().unchecked_ref(),
-                        5000,
-                    )
-                    .unwrap();
-
-                closure.forget();
-            } else {
-                window
-                    .alert_with_message(
-                        "Popup blocked! Please allow popups for this site and try again.",
-                    )
-                    .unwrap();
-                Url::revoke_object_url(&url).unwrap();
-            }
-
-            self.done.store(true, std::sync::atomic::Ordering::Relaxed);
-        } */
     }
 }

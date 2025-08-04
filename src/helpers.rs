@@ -1,4 +1,8 @@
-use egui_commonmark::{CommonMarkCache, commonmark_str};
+use std::sync::Arc;
+
+use egui::{ImageSource, SizeHint, TextureOptions, load::Bytes};
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+use include_dir::{Dir, include_dir};
 
 use crate::locale::LocaleType;
 
@@ -7,8 +11,20 @@ pub struct Helpers {
     pub about_showed: bool,
 }
 
+static ASSETS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/assets/common");
+
 impl Helpers {
-    pub fn new() -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        for file in ASSETS_DIR.files() {
+            if let Some(file_name) = file.path().file_name() {
+                let bytes = Bytes::from(Arc::from(file.contents()));
+                _ = ImageSource::Bytes {
+                    uri: format!("bytes://assets/common/{}", file_name.to_str().unwrap()).into(),
+                    bytes,
+                }
+                .load(&cc.egui_ctx, TextureOptions::default(), SizeHint::default());
+            }
+        }
         Self {
             cache: CommonMarkCache::default(),
             about_showed: false,
@@ -25,9 +41,17 @@ impl Helpers {
             .collapsible(false)
             .open(&mut self.about_showed)
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| match locale_type {
-                    LocaleType::Ru => commonmark_str!(ui, &mut self.cache, "docs/about_ru.md"),
-                    LocaleType::En => commonmark_str!(ui, &mut self.cache, "docs/about_en.md"),
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    CommonMarkViewer::new()
+                        .default_implicit_uri_scheme("bytes://")
+                        .show(
+                            ui,
+                            &mut self.cache,
+                            match locale_type {
+                                LocaleType::Ru => include_str!("../Readme_ru.md"),
+                                LocaleType::En => include_str!("../Readme.md"),
+                            },
+                        );
                 });
             });
     }

@@ -42,32 +42,14 @@ fn get_io() -> Vec<ComponentLibEntry> {
 }
 
 fn get_muxes() -> Vec<ComponentLibEntry> {
-    vec![
-        ComponentLibEntry {
-            name: "MUX2",
-            component: Component::Primitive(PrimitiveComponent {
-                typ: PrimitiveType::Mux(2),
-                pos: grid_pos(1, 1), // Default preview pos
-                rotation: crate::grid_db::Rotation::ROT0,
-            }),
-        },
-        ComponentLibEntry {
-            name: "MUX4",
-            component: Component::Primitive(PrimitiveComponent {
-                typ: PrimitiveType::Mux(4),
-                pos: grid_pos(1, 1), // Default preview pos
-                rotation: crate::grid_db::Rotation::ROT0,
-            }),
-        },
-        ComponentLibEntry {
-            name: "MUX8",
-            component: Component::Primitive(PrimitiveComponent {
-                typ: PrimitiveType::Mux(8),
-                pos: grid_pos(1, 1), // Default preview pos
-                rotation: crate::grid_db::Rotation::ROT0,
-            }),
-        },
-    ]
+    vec![ComponentLibEntry {
+        name: "MUX2",
+        component: Component::Primitive(PrimitiveComponent {
+            typ: PrimitiveType::Mux(2),
+            pos: grid_pos(1, 1), // Default preview pos
+            rotation: crate::grid_db::Rotation::ROT0,
+        }),
+    }]
 }
 
 fn get_gates() -> Vec<ComponentLibEntry> {
@@ -180,57 +162,20 @@ fn get_units_examples() -> Vec<ComponentLibEntry> {
 }
 
 fn get_flip_flops() -> Vec<ComponentLibEntry> {
-    let mut result = Vec::with_capacity(8);
-    for i in 0..8 {
-        let has_enable = (i & 1) == 1;
-        let has_sync_reset = ((i >> 1) & 1) == 1;
-        let has_async_reset = ((i >> 2) & 1) == 1;
-        for async_reset_inverted in if has_async_reset {
-            [false, true].iter()
-        } else {
-            [false].iter()
-        } {
-            for sync_reset_inverted in if has_sync_reset {
-                [false, true].iter()
-            } else {
-                [false].iter()
-            } {
-                let params = DFFParams {
-                    has_enable: has_enable,
-                    has_sync_reset: has_sync_reset,
-                    has_async_reset: has_async_reset,
-                    async_reset_inverted: *async_reset_inverted,
-                    sync_reset_inverted: *sync_reset_inverted,
-                };
-                let name: &'static str = Box::leak(Box::new(format!(
-                    "DFF{}{}{}",
-                    if params.has_enable { "E" } else { "" },
-                    if params.has_sync_reset {
-                        format!("_RST{}", if params.sync_reset_inverted { "N" } else { "" })
-                    } else {
-                        String::new()
-                    },
-                    if params.has_async_reset {
-                        format!(
-                            "_ARST{}",
-                            if params.async_reset_inverted { "N" } else { "" }
-                        )
-                    } else {
-                        String::new()
-                    }
-                )));
-                result.push(ComponentLibEntry {
-                    name: &name,
-                    component: Component::Primitive(PrimitiveComponent {
-                        typ: PrimitiveType::DFF(params),
-                        pos: grid_pos(1, 1), // Default preview pos
-                        rotation: crate::grid_db::Rotation::ROT0,
-                    }),
-                });
-            }
-        }
-    }
-    result
+    vec![ComponentLibEntry {
+        name: "DFF",
+        component: Component::Primitive(PrimitiveComponent {
+            typ: PrimitiveType::DFF(DFFParams {
+                has_enable: false,
+                has_async_reset: false,
+                has_sync_reset: false,
+                async_reset_inverted: false,
+                sync_reset_inverted: false,
+            }),
+            pos: grid_pos(1, 1), // Default preview pos
+            rotation: crate::grid_db::Rotation::ROT0,
+        }),
+    }]
 }
 
 fn get_text_labels() -> Vec<ComponentLibEntry> {

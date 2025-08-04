@@ -28,19 +28,24 @@ mod settings;
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     let icon_data = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon-256.png"))
-    .expect("The icon data must be valid");
+        .expect("The icon data must be valid");
 
     let options = eframe::NativeOptions {
         multisampling: 8,
         dithering: false,
 
-        viewport: egui::ViewportBuilder::default().with_drag_and_drop(true).with_icon(Arc::new(icon_data)),
+        viewport: egui::ViewportBuilder::default()
+            .with_drag_and_drop(true)
+            .with_icon(Arc::new(icon_data)),
         ..Default::default()
     };
     _ = eframe::run_native(
         "Editor",
         options,
-        Box::new(|app_cc| Ok(Box::new(EditorApp::new(app_cc)))),
+        Box::new(|cc| {
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+            Ok(Box::new(EditorApp::new(cc)))
+        }),
     );
 }
 
@@ -72,7 +77,10 @@ fn main() {
             .start(
                 canvas,
                 web_options,
-                Box::new(|app_cc| Ok(Box::new(EditorApp::new(app_cc)))),
+                Box::new(|cc| {
+                    egui_extras::install_image_loaders(&cc.egui_ctx);
+                    Ok(Box::new(EditorApp::new(cc)))
+                }),
             )
             .await;
 
@@ -119,7 +127,7 @@ impl EditorApp {
             preview_window: PreviewPanel::new(),
             locale: settings.locale,
             file_manager: FileManager::new(),
-            helpers: Helpers::new(),
+            helpers: Helpers::new(cc),
             file_name: "Untitled".into(),
             theme: settings.theme.into(),
         }
@@ -138,6 +146,7 @@ impl eframe::App for EditorApp {
             ui.horizontal(|ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
                     ui.menu_button(locale.file, |ui| {
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                         if ui.button(locale.open).clicked() {
                             self.file_manager.open_file(locale);
                             ui.close();
@@ -148,12 +157,18 @@ impl eframe::App for EditorApp {
                             ui.close();
                         }
                         if ui.button(locale.export_to_svg).clicked() {
-                            self.file_manager.start_export_svg(self.theme);
+                            self.file_manager.start_export_svg(
+                                ctx,
+                                &self.field.grid_db,
+                                self.theme,
+                            );
                             ui.close();
                         }
                     });
                     ui.menu_button(locale.view, |ui| {
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                         ui.menu_button(locale.grid, |ui| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                             SUPPORTED_GRID_TYPES.iter().for_each(|grid_type| {
                                 ui.radio_value(
                                     &mut self.field.grid_type,
@@ -163,6 +178,7 @@ impl eframe::App for EditorApp {
                             });
                         });
                         ui.menu_button(locale.language, |ui| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                             SUPPORTED_LOCALES.iter().for_each(|locale| {
                                 ui.radio_value(
                                     &mut self.locale,
@@ -172,12 +188,14 @@ impl eframe::App for EditorApp {
                             });
                         });
                         ui.menu_button(locale.theme, |ui| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                             SUPPORTED_THEMES.iter().for_each(|theme| {
                                 ui.radio_value(&mut self.theme, *theme, theme.get_name(locale));
                             });
                         });
                     });
                     ui.menu_button(locale.help, |ui| {
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                         if ui.button(locale.about).clicked() {
                             self.helpers.about_showed = true;
                             ui.close();

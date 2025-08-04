@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     field::FieldState,
-    grid_db::{grid_pos, Component, ComponentColor, GridPos, Net, NetSegment, SvgColor, STROKE_SCALE},
+    grid_db::{
+        Component, ComponentColor, GridPos, Net, NetSegment, STROKE_SCALE, SvgColor, grid_pos,
+    },
 }; // AABB = Axis-Aligned Bounding Box (прямоугольник)
 type Point = [i32; 2]; // Точка (x, y)
 
@@ -341,7 +343,6 @@ impl GridBD {
     }
 
     pub fn dump_to_svg(&self, theme: Theme, scale: f32) -> String {
-
         let [min_x, min_y, max_x, max_y];
         if self.components.values().len() >= 1 {
             let [c_min_x, c_min_y, c_max_x, c_max_y];
