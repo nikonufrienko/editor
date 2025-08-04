@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use eframe::{Storage, egui};
+use std::sync::Arc;
+
 use egui::{
     CursorIcon, Id, KeyboardShortcut, LayerId, Modifiers, Rect, Sense, Stroke, Theme, vec2,
 };
@@ -25,11 +27,14 @@ mod settings;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
+    let icon_data = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon-256.png"))
+    .expect("The icon data must be valid");
+
     let options = eframe::NativeOptions {
         multisampling: 8,
         dithering: false,
 
-        viewport: egui::ViewportBuilder::default().with_drag_and_drop(true),
+        viewport: egui::ViewportBuilder::default().with_drag_and_drop(true).with_icon(Arc::new(icon_data)),
         ..Default::default()
     };
     _ = eframe::run_native(

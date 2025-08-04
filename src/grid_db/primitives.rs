@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::f32::consts::{FRAC_PI_2, TAU};
 use std::ops::Add;
 use std::{
@@ -10,7 +11,6 @@ use std::{
 use egui::{Align2, RichText, Theme};
 use egui::{
     Color32, Mesh, Painter, Pos2, Shape, Stroke,
-    ahash::{HashMap, HashMapExt},
     emath::TSTransform,
     pos2, vec2,
 };
@@ -400,7 +400,7 @@ pub struct DFFParams {
     pub sync_reset_inverted: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum DFFPort {
     D,
     Q,
@@ -490,28 +490,31 @@ impl PrimitiveType {
         n_inputs: usize,
         primitive_pos: &GridPos,
     ) -> GridPos {
-        if connection_id < n_inputs as Id {
-            if n_inputs % 2 == 0 {
-                *primitive_pos + grid_pos(-1, 2 * connection_id as i32)
-            } else {
-                *primitive_pos + grid_pos(-1, connection_id as i32)
-            }
-        } else {
+        if connection_id == 0 {
+            // Output:
             let raw_dim = Self::get_and_gate_dimension_raw(n_inputs);
             *primitive_pos + grid_pos(raw_dim.0, raw_dim.1 / 2)
+        }
+        else {
+            // Inputs:
+            if n_inputs % 2 == 0 {
+                *primitive_pos + grid_pos(-1, 2 * (connection_id - 1) as i32)
+            } else {
+                *primitive_pos + grid_pos(-1, (connection_id - 1) as i32)
+            }
         }
     }
 
     fn get_and_gate_connection_position_raw(connection_id: Id, n_inputs: usize) -> Pos2 {
         let (w, h) = Self::get_and_gate_dimension_raw(n_inputs);
-        if connection_id < n_inputs {
-            if n_inputs % 2 == 0 {
-                pos2(0.0, (2 * connection_id) as f32 + 0.5)
-            } else {
-                pos2(0.0, connection_id as f32 + 0.5)
-            }
-        } else {
+        if connection_id == 0 {
             pos2(w as f32, h as f32 / 2.0)
+        } else {
+            if n_inputs % 2 == 0 {
+                pos2(0.0, (2 * (connection_id - 1)) as f32 + 0.5)
+            } else {
+                pos2(0.0, (connection_id - 1) as f32 + 0.5)
+            }
         }
     }
 
@@ -717,7 +720,7 @@ impl PrimitiveType {
         let y_range = max_y - min_y;
 
         for i in 0..n_inputs {
-            let p0 = Self::get_or_gate_connection_position_raw(i, n_inputs);
+            let p0 = Self::get_or_gate_connection_position_raw(i + 1, n_inputs);
             let y = p0.y;
 
             let t = if y_range.abs() < f32::EPSILON {
@@ -814,7 +817,7 @@ impl PrimitiveType {
         } else {
             n_inputs as f32
         };
-        let height = height_factor * grid_size;
+        let height: f32 = height_factor * grid_size;
 
         let top_point = pos2(pos.x + stroke_w * 0.5, pos.y + stroke_w * 0.5);
         let bottom_point = pos2(pos.x + stroke_w * 0.5, pos.y + height - stroke_w * 0.5);
@@ -908,7 +911,7 @@ impl PrimitiveType {
     // *** Mux ***
     //
     fn get_mux_dimension_raw(n_inputs: usize) -> (i32, i32) {
-        let w = if n_inputs > 2 { 2 } else { 1 };
+        let w = if n_inputs > 3 { 2 } else { 1 };
         let h = if n_inputs % 2 == 0 {
             (2 * n_inputs - 1) as i32
         } else {
@@ -922,40 +925,46 @@ impl PrimitiveType {
         n_inputs: usize,
         primitive_pos: &GridPos,
     ) -> GridPos {
-        if connection_id < n_inputs as Id {
-            if n_inputs % 2 == 0 {
-                *primitive_pos + grid_pos(-1, 2 * connection_id as i32)
-            } else {
-                *primitive_pos + grid_pos(-1, connection_id as i32)
-            }
-        } else if connection_id == n_inputs {
+        if connection_id == 0 {
+            // Output:
             let (w, h) = Self::get_mux_dimension_raw(n_inputs);
             *primitive_pos + grid_pos(w, h / 2)
-        } else {
+        } else if connection_id == 1 {
+            // Selector:
             let (w, h) = Self::get_mux_dimension_raw(n_inputs);
             if w == 1 {
                 *primitive_pos + grid_pos(0, h)
             } else {
                 *primitive_pos + grid_pos(1, h)
             }
+        } else {
+            // Inputs:
+            if n_inputs % 2 == 0 {
+                *primitive_pos + grid_pos(-1, 2 * (connection_id - 2) as i32)
+            } else {
+                *primitive_pos + grid_pos(-1, (connection_id - 2) as i32)
+            }
         }
     }
 
     fn get_mux_connection_position_raw(connection_id: Id, n_inputs: usize) -> Pos2 {
         let (w, h) = Self::get_mux_dimension_raw(n_inputs);
-        if connection_id < n_inputs {
-            if n_inputs % 2 == 0 {
-                pos2(0.0, (2 * connection_id) as f32 + 0.5)
-            } else {
-                pos2(0.0, connection_id as f32 + 0.5)
-            }
-        } else if connection_id == n_inputs {
+        if connection_id == 0 {
+            // Output:
             pos2(w as f32, h as f32 / 2.0)
-        } else {
+        } else if connection_id == 1 {
+            // Selector:
             if w == 1 {
                 pos2(0.5, h as f32 - 0.25)
             } else {
                 pos2(1.5, h as f32 - 0.75)
+            }
+        } else {
+            // Inputs:
+            if n_inputs % 2 == 0 {
+                pos2(0.0, (2 * (connection_id - 2)) as f32 + 0.5)
+            } else {
+                pos2(0.0, (connection_id - 2) as f32 + 0.5)
             }
         }
     }
@@ -1300,17 +1309,55 @@ impl PrimitiveType {
 
     pub fn is_customizable(&self) -> bool {
         match self {
-            Self::And(_) => true,
-            Self::Or(_) => true,
-            Self::Xor(_) => true,
-            Self::Nand(_) => true,
-            Self::Mux(_) => true,
-            Self::DFF(_) => true,
+            Self::And(_) | Self::Or(_) | Self::Xor(_) |
+            Self::Nand(_) | Self::Mux(_) | Self::DFF(_) => true,
 
-            Self::Not => false,
-            Self::Input => false,
-            Self::Output => false,
-            Self::Point => false,
+            Self::Not | Self::Input | Self::Output | Self::Point => false,
+        }
+    }
+
+    /// Returns a list of connection permutations.
+    pub fn get_connections_diff(&self, other: &Self) -> HashMap<Id, Option<Id>> {
+        match self {
+            Self::And(_) | Self::Or(_) | Self::Xor(_) |
+            Self::Nand(_) | Self::Mux(_) |
+            Self::Not | Self::Input | Self::Output | Self::Point => {
+                let mut result = HashMap::new();
+                let n0 = self.get_connections_number();
+                let n1 = other.get_connections_number();
+                if n1 < n0 {
+                    for i in n1..n0 {
+                        // Connection point has been removed
+                        result.insert(i, None);
+                    }
+                }
+                return result;
+            },
+            Self::DFF(self_params) => {
+                match other {
+                    Self::DFF(other_params) => {
+                        let mut self_port_map = HashMap::new();
+                        let self_n_ports = Self::get_dff_connections_number(self_params);
+                        for id in 0..self_n_ports {
+                            self_port_map.insert(DFFPort::from_id(self_params, id).unwrap(), id);
+                        }
+                        let mut other_port_map = HashMap::new();
+                        let other_n_ports = Self::get_dff_connections_number(other_params);
+                        for id in 0..other_n_ports {
+                            other_port_map.insert(DFFPort::from_id(other_params, id).unwrap(), id);
+                        }
+                        let mut result = HashMap::new();
+                        for (port, id) in &self_port_map {
+                            let other_id = other_port_map.get(port).cloned();
+                            if other_id != Some(*id) {
+                                result.insert(*id, other_id);
+                            }
+                        }
+                        return result;
+                    }
+                    _ => {panic!("Illegal type")}
+                }
+            }
         }
     }
 
@@ -1357,7 +1404,6 @@ impl PrimitiveType {
             },
             _ => {}
         }
-
     }
 }
 

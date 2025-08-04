@@ -1,7 +1,5 @@
 use std::{
-    f32::consts::PI,
-    ops::{Add, AddAssign},
-    vec,
+    collections::HashMap, f32::consts::PI, ops::{Add, AddAssign}, vec
 };
 
 use egui::{epaint::{PathShape, PathStroke}, pos2, vec2, Align2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Theme, Vec2
@@ -468,6 +466,21 @@ impl Component {
             _ => None,
         }
     }
+
+    pub fn get_connections_diff(&self, other: &Component) -> HashMap<Id, Option<Id>> {
+        match self {
+            Component::Primitive(self_p) => {
+                match other {
+                    Component::Primitive(other_p) => {
+                        return self_p.typ.get_connections_diff(&other_p.typ);
+                    }
+                    _ => panic!("Illegal type")
+                }
+            },
+            _ => HashMap::new(),
+        }
+    }
+
 
     pub fn is_connection_hovered(&self, connection_id: Id, state: &FieldState) -> bool {
         match self {

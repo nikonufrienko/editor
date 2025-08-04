@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     field::FieldState,
-    grid_db::{Component, ComponentColor, GridPos, Net, NetSegment, STROKE_SCALE, grid_pos},
+    grid_db::{grid_pos, Component, ComponentColor, GridPos, Net, NetSegment, SvgColor, STROKE_SCALE},
 }; // AABB = Axis-Aligned Bounding Box (прямоугольник)
 type Point = [i32; 2]; // Точка (x, y)
 
@@ -341,35 +341,35 @@ impl GridBD {
     }
 
     pub fn dump_to_svg(&self, theme: Theme, scale: f32) -> String {
-        let [c_min_x, c_min_y, c_max_x, c_max_y];
+
+        let [min_x, min_y, max_x, max_y];
         if self.components.values().len() >= 1 {
+            let [c_min_x, c_min_y, c_max_x, c_max_y];
             let c_bbox = self.tree.root().envelope();
             [c_min_x, c_min_y] = c_bbox.lower();
             [c_max_x, c_max_y] = c_bbox.upper();
+
+            if self.nets.values().len() >= 1 {
+                let [n_min_x, n_min_y, n_max_x, n_max_y];
+                let n_bbox = self.net_tree.root().envelope();
+                [n_min_x, n_min_y] = n_bbox.lower();
+                [n_max_x, n_max_y] = n_bbox.upper();
+                min_x = c_min_x.min(n_min_x);
+                min_y = c_min_y.min(n_min_y);
+                max_x = c_max_x.max(n_max_x);
+                max_y = c_max_y.max(n_max_y);
+            } else {
+                [min_x, min_y, max_x, max_y] = [c_min_x, c_min_y, c_max_x, c_max_y];
+            }
         } else {
-            [c_min_x, c_min_y, c_max_x, c_max_y] = [0, 0, 0, 0];
+            [min_x, min_y, max_x, max_y] = [0, 0, 0, 0];
         }
-
-        let [n_min_x, n_min_y, n_max_x, n_max_y];
-        if self.nets.values().len() >= 1 {
-            let n_bbox = self.net_tree.root().envelope();
-            [n_min_x, n_min_y] = n_bbox.lower();
-            [n_max_x, n_max_y] = n_bbox.upper();
-        } else {
-            [n_min_x, n_min_y, n_max_x, n_max_y] = [0, 0, 0, 0];
-        }
-
-        let min_x = c_min_x.min(n_min_x);
-        let min_y = c_min_y.min(n_min_y);
-        let max_x = c_max_x.max(n_max_x);
-        let max_y = c_max_y.max(n_max_y);
-
-        let backgound = theme.get_bg_color().to_hex();
 
         // Fixme:
-        let w = (max_x - min_x + 2) as f32 * scale;
-        let h = (max_y - min_y + 2) as f32 * scale;
-        let offset = grid_pos(-min_x, -min_y);
+        let w = (max_x - min_x + 3) as f32 * scale;
+        let h = (max_y - min_y + 3) as f32 * scale;
+        let offset = grid_pos(-min_x + 1, -min_y + 1);
+        let backgound = theme.get_bg_color().to_svg_hex();
         let body = self
             .components
             .values()
@@ -388,7 +388,8 @@ impl GridBD {
             .join("\n");
 
         format!(
-            "<svg viewBox=\"0 0 {w} {h}\" xmlns=\"http://www.w3.org/2000/svg\" style=\"background-color: {backgound}\">\n{body}\n</svg>"
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+            <svg viewBox=\"0 0 {w} {h}\" xmlns=\"http://www.w3.org/2000/svg\" style=\"background-color: {backgound}\">\n{body}\n</svg>"
         )
     }
 

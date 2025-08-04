@@ -32,16 +32,12 @@ cat > "$DESKTOP_FILE" <<EOL
 [Desktop Entry]
 Name=$APP_NAME
 Exec=$APP_NAME
-Icon=$APP_NAME
+Icon=app_icon
 Type=Application
 Categories=Utility;
 EOL
 
-if [ -f "assets/$APP_NAME.png" ]; then
-    cp "assets/$APP_NAME.png" "$TARGET_DIR"
-else
-    convert -size 64x64 xc:white -gravity center -pointsize 12 -annotate 0 "App" "$TARGET_DIR/$APP_NAME.png"
-fi
+cp "assets/icon-256.png" "$TARGET_DIR/app_icon.png"
 
 cat > "$TARGET_DIR/AppRun" <<EOL
 #!/bin/sh

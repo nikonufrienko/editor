@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     field::FieldState,
-    grid_db::{ComponentAction, ComponentColor, GridPos, Rotation},
+    grid_db::{ComponentAction, ComponentColor, GridPos, Rotation, SvgColor},
 };
 use egui::{
     Align2, Color32, FontId, Painter, Pos2, Rect, Shape, TextEdit, Theme, Ui, UiBuilder, Vec2,
@@ -41,7 +41,7 @@ impl TextField {
 
     pub fn get_svg(&self, offset: GridPos, scale: f32, theme: Theme) -> String {
         // TODO: Add text wrapping!!!
-        let color = theme.get_text_color().to_hex();
+        let color = theme.get_text_color().to_svg_hex();
         let GridPos { x, y } = self.pos + offset;
         let x = x as f32 * scale;
         let y = y as f32 * scale;
@@ -74,12 +74,10 @@ pub fn show_text_with_debounce(
     let theme = painter.ctx().theme();
     let color = theme.get_text_color();
 
-    // Рассчитываем факторы выравнивания
     let align_x = anchor.x().to_factor();
     let align_y = anchor.y().to_factor();
     let align_factor = vec2(align_x, align_y);
 
-    // Функция для расчета смещения при повороте
     let rotated_offset = |size: Vec2, rotation: Rotation| -> Vec2 {
         match rotation {
             Rotation::ROT0 => vec2(align_factor.x * size.x, align_factor.y * size.y),
@@ -107,9 +105,7 @@ pub fn show_text_with_debounce(
             }
         });
 
-        // Финальный размер после масштабирования
         let final_size = galley.size() * scale;
-        // Смещение с учетом поворота
         let offset = rotated_offset(final_size, rotation);
         let aligned_pos = pos - offset;
 
@@ -131,7 +127,6 @@ pub fn show_text_with_debounce(
             }
         });
 
-        // Смещение с учетом поворота
         let offset = rotated_offset(galley.size(), rotation);
         let aligned_pos = pos - offset;
 

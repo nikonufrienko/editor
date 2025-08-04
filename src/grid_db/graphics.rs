@@ -1,3 +1,4 @@
+use egui::ecolor::HexColor;
 use egui::epaint::Vertex;
 use egui::{Align, Align2, Color32, Mesh, Painter, Pos2, Rect, Stroke, Theme, Vec2, pos2};
 use lyon::geom::point;
@@ -152,7 +153,7 @@ pub fn svg_polygon(
     stroke_color: Color32,
     stroke_w: f32,
 ) -> String {
-    fill_color.to_hex();
+    fill_color.to_svg_hex();
     let points_str = points
         .iter()
         .map(|p| format!("{} {}", p.x, p.y))
@@ -161,8 +162,8 @@ pub fn svg_polygon(
     format!(
         "<polygon points=\"{}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\" />",
         points_str,
-        fill_color.to_hex(),
-        stroke_color.to_hex(),
+        fill_color.to_svg_hex(),
+        stroke_color.to_svg_hex(),
         stroke_w
     )
 }
@@ -183,7 +184,7 @@ pub fn svg_line(points: &Vec<Pos2>, color: Color32, width: f32) -> String {
     format!(
         r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none"/>"#,
         path,
-        color.to_hex(),
+        color.to_svg_hex(),
         width
     )
 }
@@ -194,7 +195,7 @@ pub fn svg_circle_filled(center: Pos2, radius: f32, fill_color: Color32) -> Stri
         center.x,
         center.y,
         radius,
-        fill_color.to_hex()
+        fill_color.to_svg_hex()
     )
 }
 
@@ -211,8 +212,8 @@ pub fn svg_circle(
         center.x,
         center.y,
         radius,
-        fill_color.to_hex(),
-        stroke_color.to_hex(),
+        fill_color.to_svg_hex(),
+        stroke_color.to_svg_hex(),
         stroke_width
     )
 }
@@ -278,7 +279,7 @@ pub fn svg_single_line_text(
     theme: Theme,
     anchor: Align2,
 ) -> String {
-    let color = theme.get_text_color().to_hex();
+    let color = theme.get_text_color().to_svg_hex();
     let Pos2 { x, y } = pos;
     let deg_angle = match rotation {
         Rotation::ROT0 => "0",
@@ -304,9 +305,19 @@ pub fn svg_single_line_text(
     )
 }
 
+pub trait SvgColor {
+    fn to_svg_hex(self) -> String;
+}
+
+impl SvgColor for Color32 {
+    fn to_svg_hex(self) -> String {
+        HexColor::Hex6(self).to_string()
+    }
+}
+
 pub fn svg_rect(pos: Pos2, (width, height): (f32, f32), stroke_w: f32, theme: Theme) -> String {
-    let fill_color = theme.get_fill_color().to_hex();
-    let stroke_color = theme.get_stroke_color().to_hex();
+    let fill_color = theme.get_fill_color().to_svg_hex();
+    let stroke_color = theme.get_stroke_color().to_svg_hex();
     format!(
         r#"
     <rect

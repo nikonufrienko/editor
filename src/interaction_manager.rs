@@ -488,6 +488,71 @@ impl InteractionManager {
         self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
     }
 
+    fn apply_customization(&mut self, bd: &mut GridBD, comp_id: Id, customized_comp: Component) {
+        let old_comp = bd.get_component(&comp_id).unwrap();
+        let connections_diff = old_comp.get_connections_diff(&customized_comp);
+        let mut transactions = LinkedList::new();
+
+        // Rebuild connected nets:
+        for net_id in &bd.get_connected_nets(&comp_id) {
+            let net = bd.get_net(&net_id).unwrap();
+            let mut new_net = net.clone();
+            let mut remove_net = false;
+
+            if net.start_point.component_id == comp_id {
+                if let Some(new_id) = connections_diff.get(&net.start_point.connection_id) {
+                    if let Some(new_id) = new_id {
+                        new_net.start_point.connection_id = *new_id;
+                    } else {
+                        remove_net = true;
+                    }
+                }
+            }
+            if net.end_point.component_id == comp_id {
+                if let Some(new_id) = connections_diff.get(&net.end_point.connection_id) {
+                    if let Some(new_id) = new_id {
+                        new_net.end_point.connection_id = *new_id;
+                    } else {
+                        remove_net = true;
+                    }
+                }
+            }
+            let transaction = if !remove_net {
+                // Rebuild net:
+                Self::get_net_connection_move_transaction(
+                    *net_id,
+                    bd,
+                    if net.start_point.component_id == comp_id {
+                        let p0 = old_comp.get_connection_dock_cell(net.start_point.connection_id).unwrap();
+                        let p1 = customized_comp.get_connection_dock_cell(new_net.start_point.connection_id).unwrap();
+                        (p1.x - p0.x, p1.y - p0.y)
+                    } else {
+                        (0, 0)
+                    },
+                    if net.end_point.component_id == comp_id {
+                        let p0 = old_comp.get_connection_dock_cell(net.end_point.connection_id).unwrap();
+                        let p1 = customized_comp.get_connection_dock_cell(new_net.end_point.connection_id).unwrap();
+                        (p1.x - p0.x, p1.y - p0.y)
+                    } else {
+                        (0, 0)
+                    },
+                )
+            } else {
+                // Remove net:
+                Some(
+                    Transaction::ChangeNet { net_id: *net_id, old_net: None, new_net: None }
+                )
+            };
+
+            if let Some(t) = transaction {
+                transactions.push_back(t);
+            }
+        }
+        transactions.push_back(Transaction::ChangeComponent { comp_id, old_comp: None, new_comp: Some(customized_comp) });
+        self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
+
+    }
+
     /// Refreshes action state.
     /// Returns false if no action performed.
     pub fn refresh(
@@ -835,7 +900,7 @@ impl InteractionManager {
 
                 if done {
                     if let InteractionState::CustomizeComponent { id, buffer } = std::mem::replace(&mut self.state, InteractionState::Idle) {
-                        self.apply_new_transaction(Transaction::ChangeComponent { comp_id: id, old_comp: None, new_comp: Some(buffer) }, bd);
+                        self.apply_customization(bd, id, buffer);
                         return true;
                     } else {
                         panic!();
@@ -1214,36 +1279,29 @@ pub struct ConnectionBuilder {
     state: ConnectionBuilderState,
 }
 
-fn simplify_path(path: Vec<GridPos>) -> Vec<GridPos> {
-    let mut cleaned = Vec::with_capacity(path.len());
-    cleaned.push(path[0]);
-    for (i, &point) in path.iter().enumerate().skip(1) {
-        if point != *cleaned.last().unwrap() || i == path.len() - 1 {
-            cleaned.push(point);
+fn simplify_path(mut path: Vec<GridPos>) -> Vec<GridPos> {
+    loop {
+        let prev_size = path.len();
+        let mut i = 1;
+        while i < (path.len() - 1) {
+            let prev = path[i - 1];
+            let curr = path[i];
+            let next = path[i + 1];
+
+            let same_x = prev.x == curr.x && curr.x == next.x;
+            let same_y = prev.y == curr.y && curr.y == next.y;
+
+            if same_x || same_y {
+                path.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        if prev_size == path.len() {
+            break;
         }
     }
-
-    if cleaned.len() <= 2 {
-        return cleaned;
-    }
-
-    let mut i = 1;
-    while i < cleaned.len().saturating_sub(1) {
-        let prev = cleaned[i - 1];
-        let curr = cleaned[i];
-        let next = cleaned[i + 1];
-
-        let same_x = prev.x == curr.x && curr.x == next.x;
-        let same_y = prev.y == curr.y && curr.y == next.y;
-
-        if same_x || same_y {
-            cleaned.remove(i);
-        } else {
-            i += 1;
-        }
-    }
-
-    cleaned
+    path
 }
 
 impl ConnectionBuilder {
