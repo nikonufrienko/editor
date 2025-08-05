@@ -13,15 +13,16 @@ Key features:
 * Loading schematics from a JSON file.
 * Exporting schematics to SVG.
 
-## Component Types
+## Component Types:
 
 |Type|Available Actions|
 |-|-|
 |Primitives|Rotation, customization (modifying various parameters)|
-|Custom Blocks|Adding, renaming, and deleting ports|
+|Custom Units|Adding, renaming, and deleting ports|
 |Text Fields|Editing|
 
-## Supported Primitives
+## Supported Primitives:
+
 |Components|Status|Customizable Parameters|
 |-|-|-|
 |Logic Gates (AND, OR, XOR, NAND)|✅| Number of inputs|
@@ -35,7 +36,8 @@ Key features:
 |Half Adder|🔄|-|
 |Full Adder|🔄|-|
 
-## Supported Platforms
+## Supported Platforms:
+
 |Platform|Status|
 |-|-|
 |WASM|✅|
@@ -43,8 +45,15 @@ Key features:
 |Windows|✅|
 |Android|🔄|
 
+## Localizations:
+
+* Russian
+* English
+* Simplified Chinese (AI-generated)
+
 ## TODO List:
+
 * [ ] Improve Net construction. Implement smart construction patterns.
 * [ ] Add functionality to split Net into two parts with a new Point.
 * [ ] Add more components.
-* [ ] Add a "Focus on entire field" button.
+* [ ] Add a "Fit to view" button to focus on all placed components.
