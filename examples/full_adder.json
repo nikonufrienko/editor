@@ -1,0 +1,570 @@
+{
+  "components": {
+    "25": {
+      "Primitive": {
+        "typ": "Point",
+        "pos": [
+          25,
+          14
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "20": {
+      "Primitive": {
+        "typ": "Input",
+        "pos": [
+          13,
+          10
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "35": {
+      "TextField": {
+        "text": "SUM",
+        "size": [
+          4,
+          1
+        ],
+        "pos": [
+          37,
+          12
+        ]
+      }
+    },
+    "24": {
+      "Primitive": {
+        "typ": {
+          "Xor": 2
+        },
+        "pos": [
+          26,
+          11
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "15": {
+      "Primitive": {
+        "typ": "Point",
+        "pos": [
+          17,
+          12
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "11": {
+      "TextField": {
+        "text": "# Full adder",
+        "size": [
+          4,
+          1
+        ],
+        "pos": [
+          24,
+          8
+        ]
+      }
+    },
+    "26": {
+      "Primitive": {
+        "typ": "Point",
+        "pos": [
+          23,
+          11
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "27": {
+      "Primitive": {
+        "typ": "Input",
+        "pos": [
+          13,
+          14
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "31": {
+      "TextField": {
+        "text": "A",
+        "size": [
+          1,
+          1
+        ],
+        "pos": [
+          12,
+          10
+        ]
+      }
+    },
+    "33": {
+      "TextField": {
+        "text": "C",
+        "size": [
+          1,
+          1
+        ],
+        "pos": [
+          12,
+          14
+        ]
+      }
+    },
+    "28": {
+      "Primitive": {
+        "typ": {
+          "And": 2
+        },
+        "pos": [
+          26,
+          19
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "22": {
+      "Primitive": {
+        "typ": "Input",
+        "pos": [
+          13,
+          12
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "34": {
+      "TextField": {
+        "text": "COUT",
+        "size": [
+          4,
+          1
+        ],
+        "pos": [
+          37,
+          17
+        ]
+      }
+    },
+    "29": {
+      "Primitive": {
+        "typ": {
+          "Or": 2
+        },
+        "pos": [
+          31,
+          16
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "19": {
+      "Primitive": {
+        "typ": "Output",
+        "pos": [
+          35,
+          12
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "12": {
+      "Primitive": {
+        "typ": {
+          "Xor": 2
+        },
+        "pos": [
+          20,
+          10
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "14": {
+      "Primitive": {
+        "typ": "Point",
+        "pos": [
+          18,
+          10
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "23": {
+      "Primitive": {
+        "typ": {
+          "And": 2
+        },
+        "pos": [
+          26,
+          15
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "30": {
+      "Primitive": {
+        "typ": "Output",
+        "pos": [
+          35,
+          17
+        ],
+        "rotation": "ROT0"
+      }
+    },
+    "32": {
+      "TextField": {
+        "text": "B",
+        "size": [
+          1,
+          1
+        ],
+        "pos": [
+          12,
+          12
+        ]
+      }
+    }
+  },
+  "nets": {
+    "18": {
+      "start_point": {
+        "component_id": 22,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 15,
+        "connection_id": 0
+      },
+      "points": [
+        [
+          15,
+          12
+        ],
+        [
+          17,
+          12
+        ]
+      ]
+    },
+    "24": {
+      "start_point": {
+        "component_id": 26,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 23,
+        "connection_id": 2
+      },
+      "points": [
+        [
+          23,
+          11
+        ],
+        [
+          23,
+          17
+        ],
+        [
+          25,
+          17
+        ]
+      ]
+    },
+    "30": {
+      "start_point": {
+        "component_id": 29,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 30,
+        "connection_id": 0
+      },
+      "points": [
+        [
+          34,
+          17
+        ],
+        [
+          34,
+          17
+        ]
+      ]
+    },
+    "25": {
+      "start_point": {
+        "component_id": 27,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 25,
+        "connection_id": 0
+      },
+      "points": [
+        [
+          15,
+          14
+        ],
+        [
+          25,
+          14
+        ]
+      ]
+    },
+    "22": {
+      "start_point": {
+        "component_id": 12,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 26,
+        "connection_id": 0
+      },
+      "points": [
+        [
+          23,
+          11
+        ],
+        [
+          23,
+          11
+        ]
+      ]
+    },
+    "26": {
+      "start_point": {
+        "component_id": 28,
+        "connection_id": 1
+      },
+      "end_point": {
+        "component_id": 14,
+        "connection_id": 0
+      },
+      "points": [
+        [
+          25,
+          19
+        ],
+        [
+          18,
+          19
+        ],
+        [
+          18,
+          10
+        ]
+      ]
+    },
+    "16": {
+      "start_point": {
+        "component_id": 20,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 14,
+        "connection_id": 0
+      },
+      "points": [
+        [
+          15,
+          10
+        ],
+        [
+          18,
+          10
+        ]
+      ]
+    },
+    "21": {
+      "start_point": {
+        "component_id": 25,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 23,
+        "connection_id": 1
+      },
+      "points": [
+        [
+          25,
+          14
+        ],
+        [
+          25,
+          15
+        ]
+      ]
+    },
+    "20": {
+      "start_point": {
+        "component_id": 24,
+        "connection_id": 2
+      },
+      "end_point": {
+        "component_id": 25,
+        "connection_id": 0
+      },
+      "points": [
+        [
+          25,
+          13
+        ],
+        [
+          25,
+          14
+        ]
+      ]
+    },
+    "10": {
+      "start_point": {
+        "component_id": 15,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 12,
+        "connection_id": 2
+      },
+      "points": [
+        [
+          17,
+          12
+        ],
+        [
+          19,
+          12
+        ]
+      ]
+    },
+    "28": {
+      "start_point": {
+        "component_id": 23,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 29,
+        "connection_id": 1
+      },
+      "points": [
+        [
+          29,
+          16
+        ],
+        [
+          30,
+          16
+        ]
+      ]
+    },
+    "9": {
+      "start_point": {
+        "component_id": 14,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 12,
+        "connection_id": 1
+      },
+      "points": [
+        [
+          18,
+          10
+        ],
+        [
+          19,
+          10
+        ]
+      ]
+    },
+    "23": {
+      "start_point": {
+        "component_id": 26,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 24,
+        "connection_id": 1
+      },
+      "points": [
+        [
+          23,
+          11
+        ],
+        [
+          25,
+          11
+        ]
+      ]
+    },
+    "29": {
+      "start_point": {
+        "component_id": 28,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 29,
+        "connection_id": 2
+      },
+      "points": [
+        [
+          29,
+          20
+        ],
+        [
+          29,
+          18
+        ],
+        [
+          30,
+          18
+        ]
+      ]
+    },
+    "27": {
+      "start_point": {
+        "component_id": 15,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 28,
+        "connection_id": 2
+      },
+      "points": [
+        [
+          17,
+          12
+        ],
+        [
+          17,
+          21
+        ],
+        [
+          25,
+          21
+        ]
+      ]
+    },
+    "19": {
+      "start_point": {
+        "component_id": 24,
+        "connection_id": 0
+      },
+      "end_point": {
+        "component_id": 19,
+        "connection_id": 0
+      },
+      "points": [
+        [
+          29,
+          12
+        ],
+        [
+          34,
+          12
+        ]
+      ]
+    }
+  }
+}

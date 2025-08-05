@@ -53,8 +53,7 @@ fn main() {
 }
 
 #[cfg(feature = "unifont")]
-fn load_unifont(cc: &CreationContext) {
-    use eframe::CreationContext;
+fn load_unifont(cc: &eframe::CreationContext) {
     use egui::{
         FontData,
         epaint::text::{FontInsert, FontPriority, InsertFontFamily},

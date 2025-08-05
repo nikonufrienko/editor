@@ -25,32 +25,58 @@ jobs:
     - name: Install MinGW-w64
       run: sudo apt-get install -y mingw-w64
 
+    - name: Build for x86_64-unknown-linux-gnu (unifont)
+      run: cargo build -r --target x86_64-unknown-linux-gnu --features unifont --verbose
+
+    - name: Prepare for unifont AppImage build
+      run: |
+        mkdir -p target/release
+        cp target/x86_64-unknown-linux-gnu/release/editor target/release/editor
+        chmod +x appimage.sh
+
+    - name: Build unifont AppImage
+      run: |
+        ./appimage.sh
+        mv editor-x86_64.AppImage editor-x86_64-unifont.AppImage
+
     - name: Build for x86_64-unknown-linux-gnu
       run: cargo build -r --target x86_64-unknown-linux-gnu --verbose
-
-    - name: Build for x86_64-pc-windows-gnu
-      run: cargo build -r --target x86_64-pc-windows-gnu --verbose
 
     - name: Prepare for AppImage build
       run: |
         mkdir -p target/release
-        cp target/x86_64-unknown-linux-gnu/release/${{ env.ARTIFACT_NAME }} target/release/${{ env.ARTIFACT_NAME }}
+        cp target/x86_64-unknown-linux-gnu/release/editor target/release/editor
         chmod +x appimage.sh
 
     - name: Build AppImage
       run: ./appimage.sh
 
-    - name: Upload Windows artifact
+    - name: Build for x86_64-pc-windows-gnu (unifont)
+      run: |
+        mkdir result
+        cargo build -r --target x86_64-pc-windows-gnu --features unifont --verbose
+        mv target/x86_64-pc-windows-gnu/release/editor.exe result/editor-x86_64-unifont.exe
+
+    - name: Build for x86_64-pc-windows-gnu
+      run: |
+        cargo build -r --target x86_64-pc-windows-gnu --verbose
+        mv target/x86_64-pc-windows-gnu/release/editor.exe result/editor-x86_64.exe
+
+    - name: Upload Windows artifacts
       uses: actions/upload-artifact@v4
       with:
         name: windows-gnu-build
-        path: target/x86_64-pc-windows-gnu/release/${{ env.ARTIFACT_NAME }}.exe
+        path: |
+          result/editor-x86_64.exe
+          result/editor-x86_64-unifont.exe
 
-    - name: Upload Linux artifact
+    - name: Upload Linux artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: linux-appimage
-        path: editor-x86_64.AppImage
+        name: linux-appimages
+        path: |
+          editor-x86_64.AppImage
+          editor-x86_64-unifont.AppImage
 
     - name: Get short commit hash
       run: echo "COMMIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
@@ -66,20 +92,14 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
 
-    - name: Upload Windows Release Asset
+    - name: Upload Release Assets
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          target/x86_64-pc-windows-gnu/release/${{ env.ARTIFACT_NAME }}.exe
-        tag_name: commit-${{ env.COMMIT_HASH }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-
-    - name: Upload Linux Release Asset
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
+          result/editor-x86_64.exe
+          result/editor-x86_64-unifont.exe
           editor-x86_64.AppImage
+          editor-x86_64-unifont.AppImage
         tag_name: commit-${{ env.COMMIT_HASH }}
       env:
         GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}

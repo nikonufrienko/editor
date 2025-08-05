@@ -3,4 +3,3 @@
 *.AppImage
 Cargo.lock
 /AppImage
-*.json
