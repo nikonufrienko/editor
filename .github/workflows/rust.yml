@@ -14,6 +14,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y upx-ucl binutils
+
     - name: Install x86_64-pc-windows-gnu target
       run: rustup target add x86_64-pc-windows-gnu
 
@@ -26,6 +31,15 @@ jobs:
     - name: Build for x86_64-pc-windows-gnu
       run: cargo build -r --target x86_64-pc-windows-gnu --verbose
 
+    - name: Prepare for AppImage build
+      run: |
+        mkdir -p target/release
+        cp target/x86_64-unknown-linux-gnu/release/${{ env.ARTIFACT_NAME }} target/release/${{ env.ARTIFACT_NAME }}
+        chmod +x appimage.sh
+
+    - name: Build AppImage
+      run: ./appimage.sh
+
     - name: Upload Windows artifact
       uses: actions/upload-artifact@v4
       with:
@@ -35,12 +49,12 @@ jobs:
     - name: Upload Linux artifact
       uses: actions/upload-artifact@v4
       with:
-        name: linux-gnu-build
-        path: target/x86_64-unknown-linux-gnu/release/${{ env.ARTIFACT_NAME }}
+        name: linux-appimage
+        path: editor-x86_64.AppImage
 
     - name: Get short commit hash
       run: echo "COMMIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-    
+
     - name: Create Release
       id: create_release
       uses: softprops/action-gh-release@v1
@@ -51,7 +65,7 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-        
+
     - name: Upload Windows Release Asset
       uses: softprops/action-gh-release@v1
       with:
@@ -60,12 +74,12 @@ jobs:
         tag_name: commit-${{ env.COMMIT_HASH }}
       env:
         GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-        
+
     - name: Upload Linux Release Asset
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          target/x86_64-unknown-linux-gnu/release/${{ env.ARTIFACT_NAME }}
+          editor-x86_64.AppImage
         tag_name: commit-${{ env.COMMIT_HASH }}
       env:
         GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
