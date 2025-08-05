@@ -1,5 +1,7 @@
 ## Schematic Editor
 
+[Web Demo](https://nikonufrienko.github.io/editor/)
+
 Dark theme:
 
 ![](assets/common/example_dark.jpg)

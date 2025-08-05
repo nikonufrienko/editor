@@ -1,5 +1,7 @@
 ## Редактор схем
 
+[Веб демо](https://nikonufrienko.github.io/editor/)
+
 Темная тема:
 
 ![](assets/common/example_dark.jpg)

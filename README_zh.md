@@ -1,5 +1,7 @@
 ## 电路图编辑器
 
+[网页演示](https://nikonufrienko.github.io/editor/)
+
 深色主题:
 
 ![](assets/common/example_dark.jpg)
