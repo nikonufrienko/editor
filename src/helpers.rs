@@ -44,14 +44,7 @@ impl Helpers {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     CommonMarkViewer::new()
                         .default_implicit_uri_scheme("bytes://")
-                        .show(
-                            ui,
-                            &mut self.cache,
-                            match locale_type {
-                                LocaleType::Ru => include_str!("../Readme_ru.md"),
-                                LocaleType::En => include_str!("../Readme.md"),
-                            },
-                        );
+                        .show(ui, &mut self.cache, locale_type.get_readme());
                 });
             });
     }

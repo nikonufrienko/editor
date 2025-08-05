@@ -73,19 +73,19 @@ pub fn grid_rect(id: usize, min: GridPos, max: GridPos) -> GridRect {
 }
 
 #[derive(Default)]
-pub struct GridBD {
+pub struct GridDB {
     components: HashMap<usize, Component>,
     tree: RTree<GridRect>,
-    connections: HashMap<GridPos, HashSet<GridBDConnectionPoint>>, // HashSet<GridBDConnectionPoint> --> Vec<GridBDConnectionPoint> ???
+    connections: HashMap<GridPos, HashSet<GridDBConnectionPoint>>,
     pub nets: HashMap<usize, Net>,
-    connected_nets: HashMap<GridBDConnectionPoint, HashSet<Id>>,
+    connected_nets: HashMap<GridDBConnectionPoint, HashSet<Id>>,
     net_tree: RTree<NetSegment>,
     next_component_id: Id,
     next_net_id: Id,
 }
 
-impl GridBD {
-    pub fn new() -> GridBD {
+impl GridDB {
+    pub fn new() -> GridDB {
         Self {
             components: HashMap::new(),
             tree: RTree::new(),
@@ -106,14 +106,14 @@ impl GridBD {
             .enumerate()
             .for_each(|(i, cell)| {
                 if let Some(set) = self.connections.get_mut(cell) {
-                    set.insert(GridBDConnectionPoint {
+                    set.insert(GridDBConnectionPoint {
                         component_id: id,
                         connection_id: i,
                     });
                 } else {
                     self.connections.insert(
                         *cell,
-                        HashSet::from([GridBDConnectionPoint {
+                        HashSet::from([GridDBConnectionPoint {
                             component_id: id,
                             connection_id: i,
                         }]),
@@ -145,14 +145,13 @@ impl GridBD {
                     }
                 }
             }
-            //self.connections.insert(*cell, GridBDConnectionPoint {component_id: *id, connection_id: i}); // ?????????
         }
         self.tree.remove(&component.get_grid_rect(*id));
 
         return self.components.remove(&id);
     }
 
-    pub fn get_hovered_connection(&self, state: &FieldState) -> Option<GridBDConnectionPoint> {
+    pub fn get_hovered_connection(&self, state: &FieldState) -> Option<GridDBConnectionPoint> {
         if let Some(cursor_pos) = state.cursor_pos {
             let grid_hoverpos = state.screen_to_grid(cursor_pos);
             // TODO: Simplify it (HOW??)
@@ -312,7 +311,7 @@ impl GridBD {
                 .enumerate()
                 .for_each(|(inner_id, _cell)| {
                     // TODO: simplify it
-                    if let Some(set) = self.connected_nets.get(&&GridBDConnectionPoint {
+                    if let Some(set) = self.connected_nets.get(&&GridDBConnectionPoint {
                         component_id: *component_id,
                         connection_id: inner_id,
                     }) {
@@ -335,7 +334,7 @@ impl GridBD {
     }
 
     pub fn dump_to_json(&self) -> Option<String> {
-        serde_json::to_string_pretty(&GridBdDump {
+        serde_json::to_string_pretty(&GridDBDump {
             components: self.components.clone(),
             nets: self.nets.clone(),
         })
@@ -395,7 +394,7 @@ impl GridBD {
     }
 
     pub fn load_from_json(json: String) -> Result<Self, serde_json::Error> {
-        let dump: GridBdDump = serde_json::from_str(&json)?;
+        let dump: GridDBDump = serde_json::from_str(&json)?;
         let mut result = Self::new();
 
         // Allocate new nets and components:
@@ -418,13 +417,13 @@ impl GridBD {
 }
 
 #[derive(Serialize, Deserialize)]
-struct GridBdDump {
+struct GridDBDump {
     components: HashMap<Id, Component>,
     nets: HashMap<Id, Net>,
 }
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
-pub struct GridBDConnectionPoint {
+pub struct GridDBConnectionPoint {
     pub component_id: Id,
     pub connection_id: Id,
 }

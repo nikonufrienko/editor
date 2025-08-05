@@ -6,9 +6,9 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 
-use egui::{Image, ImageSource, SizeHint, TextureOptions, Theme, Vec2, mutex::Mutex, vec2};
+use egui::{Theme, mutex::Mutex};
 
-use crate::{grid_db::GridBD, locale::Locale};
+use crate::{grid_db::GridDB, locale::Locale};
 
 #[derive(PartialEq, Debug)]
 enum FileManagerState {
@@ -26,7 +26,7 @@ enum FileManagerState {
 pub struct FileManager {
     state: FileManagerState,
     done: Arc<AtomicBool>, // For async action status checking
-    loaded_data: Arc<Mutex<Result<(GridBD, String), &'static str>>>,
+    loaded_data: Arc<Mutex<Result<(GridDB, String), &'static str>>>,
 }
 
 impl FileManager {
@@ -105,7 +105,7 @@ impl FileManager {
         &mut self,
         ctx: &egui::Context,
         locale: &'static Locale,
-        bd: &mut GridBD,
+        db: &mut GridDB,
         file_name: &mut String,
     ) {
         if self.state != FileManagerState::None {
@@ -131,46 +131,10 @@ impl FileManager {
                         ui.label(locale.ongoing_export_to_svg);
                     }
                     FileManagerState::ExportSVGDialog {
-                        export_theme,
-                        cell_size,
+                        export_theme: _,
+                        cell_size: _,
                     } => {
-                        let Vec2 { x, y } = ctx.available_rect().size();
-
-                        ui.set_min_size(vec2(x.min(y), x.min(y)) * 0.5);
-                        ui.set_max_size(vec2(x.min(y), x.min(y)) * 0.5);
-                        let mut valid = true;
-                        ui.horizontal(|ui| {
-                            ui.label(locale.theme);
-                            let change0 = ui
-                                .radio_value(export_theme, Theme::Dark, locale.theme_dark)
-                                .changed();
-                            let change1 = ui
-                                .radio_value(export_theme, Theme::Light, locale.theme_light)
-                                .changed();
-                            if change0 || change1 {
-                                Self::reload_preview(ui.ctx(), bd, *export_theme);
-                                valid = false;
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label(locale.cell_size);
-                            ui.add(egui::TextEdit::singleline(cell_size).desired_width(30.0))
-                        });
-                        if valid {
-                            ui.add(Image::new(ImageSource::Uri("bytes://preview.svg".into())));
-                        }
-                        ui.add_space((ui.available_height() - 20.0).max(0.0));
-                        let theme = export_theme.clone();
-                        if ui.button("OK").clicked() {
-                            match cell_size.parse::<f32>() {
-                                Ok(cell_size) => {
-                                    self.export_to_svg(bd, file_name, theme, cell_size)
-                                }
-                                Err(_) => {
-                                    self.state = FileManagerState::Error(locale.illegal_cell_size)
-                                }
-                            }
-                        }
+                        self.export_file_dialog(ui, locale, db, file_name);
                     }
                     _ => {}
                 }
@@ -179,8 +143,8 @@ impl FileManager {
                 FileManagerState::OpenFile => {
                     if self.done.load(std::sync::atomic::Ordering::Relaxed) {
                         match &mut *self.loaded_data.lock() {
-                            Ok((new_bd, new_file_name)) => {
-                                *bd = std::mem::take(new_bd);
+                            Ok((new_db, new_file_name)) => {
+                                *db = std::mem::take(new_db);
                                 *file_name = new_file_name.clone();
                                 self.state = FileManagerState::None;
                                 self.done.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -204,18 +168,149 @@ impl FileManager {
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
+    fn show_preview_wasm(db: &mut GridDB, grid_size: f32, theme: Theme) {
+        {
+            let data = db.dump_to_svg(theme, grid_size);
+            use eframe::wasm_bindgen::JsCast;
+            use eframe::wasm_bindgen::prelude::Closure;
+            use web_sys::{Blob, BlobPropertyBag, Url};
+
+            let blob_properties = BlobPropertyBag::new();
+            blob_properties.set_type("image/svg+xml");
+
+            let blob = Blob::new_with_str_sequence_and_options(
+                &js_sys::Array::of1(&js_sys::JsString::from(data)),
+                &blob_properties,
+            )
+            .unwrap();
+
+            let url = Url::create_object_url_with_blob(&blob).unwrap();
+
+            let window = web_sys::window().unwrap();
+            let opened = window.open_with_url_and_target(&url, "_blank").unwrap();
+
+            if opened.is_some() {
+                let closure = Closure::once(move || {
+                    Url::revoke_object_url(&url).unwrap();
+                });
+
+                window
+                    .set_timeout_with_callback_and_timeout_and_arguments_0(
+                        closure.as_ref().unchecked_ref(),
+                        5000,
+                    )
+                    .unwrap();
+
+                closure.forget();
+            } else {
+                window
+                    .alert_with_message(
+                        "Popup blocked! Please allow popups for this site and try again.",
+                    )
+                    .unwrap();
+                Url::revoke_object_url(&url).unwrap();
+            }
+        }
+    }
+
+    fn export_file_dialog(
+        &mut self,
+        ui: &mut egui::Ui,
+        locale: &'static Locale,
+        db: &mut GridDB,
+        file_name: &String,
+    ) {
+        let (export_theme, cell_size) = match &mut self.state {
+            FileManagerState::ExportSVGDialog {
+                export_theme,
+                cell_size,
+            } => (export_theme, cell_size),
+            _ => panic!(),
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let egui::Vec2 { x, y } = ui.ctx().available_rect().size();
+            ui.set_min_size(egui::vec2(x.min(y), x.min(y)) * 0.5);
+            ui.set_max_size(egui::vec2(x.min(y), x.min(y)) * 0.5);
+            let mut preview_valid = true;
+            ui.horizontal(|ui| {
+                ui.label(locale.theme);
+                let change0 = ui
+                    .radio_value(export_theme, Theme::Dark, locale.theme_dark)
+                    .changed();
+                let change1 = ui
+                    .radio_value(export_theme, Theme::Light, locale.theme_light)
+                    .changed();
+                if change0 || change1 {
+                    Self::reload_preview(ui.ctx(), db, *export_theme);
+                    preview_valid = false;
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label(locale.cell_size);
+                ui.add(egui::TextEdit::singleline(cell_size).desired_width(30.0))
+            });
+            if preview_valid {
+                ui.add(egui::Image::new(egui::ImageSource::Uri(
+                    "bytes://preview.svg".into(),
+                )));
+            }
+            ui.add_space((ui.available_height() - 20.0).max(0.0));
+            let theme = export_theme.clone();
+            if ui.button("OK").clicked() {
+                match cell_size.parse::<f32>() {
+                    Ok(cell_size) => self.export_to_svg(db, file_name, theme, cell_size),
+                    Err(_) => self.state = FileManagerState::Error(locale.illegal_cell_size),
+                }
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            ui.horizontal(|ui| {
+                ui.label(locale.theme);
+                ui.radio_value(export_theme, Theme::Dark, locale.theme_dark)
+                    .changed();
+                ui.radio_value(export_theme, Theme::Light, locale.theme_light)
+                    .changed();
+            });
+            let parse_result = cell_size.parse::<f32>();
+
+            ui.horizontal(|ui| {
+                ui.label(locale.cell_size);
+                ui.add(egui::TextEdit::singleline(cell_size).desired_width(30.0));
+                if parse_result.is_err() {
+                    ui.label("⚠");
+                }
+            });
+            let theme = export_theme.clone();
+            ui.horizontal(|ui| {
+                if ui.button("OK").clicked() {
+                    match parse_result {
+                        Ok(cell_size) => self.export_to_svg(db, file_name, theme, cell_size),
+                        Err(_) => self.state = FileManagerState::Error(locale.illegal_cell_size),
+                    }
+                }
+                if ui.button(locale.preview).clicked() {
+                    Self::show_preview_wasm(db, 100.0, theme);
+                }
+            });
+        }
+    }
+
     fn load_data(
         data: Vec<u8>,
         locale: &'static Locale,
         file_name: String,
-    ) -> Result<(GridBD, String), &'static str> {
+    ) -> Result<(GridDB, String), &'static str> {
         if let Ok(json) = String::from_utf8(data) {
-            if let Ok(new_bd) = GridBD::load_from_json(json) {
+            if let Ok(new_db) = GridDB::load_from_json(json) {
                 let striped_name = file_name
                     .strip_suffix(".json")
                     .unwrap_or(&file_name)
                     .to_string();
-                return Ok((new_bd, striped_name));
+                return Ok((new_db, striped_name));
             } else {
                 Err(locale.file_wrong_format)
             }
@@ -287,8 +382,8 @@ impl FileManager {
         }
     }
 
-    pub fn save_file(&mut self, bd: &GridBD, file_name: &String) {
-        if let Some(data) = bd.dump_to_json() {
+    pub fn save_file(&mut self, db: &GridDB, file_name: &String) {
+        if let Some(data) = db.dump_to_json() {
             self.state = FileManagerState::SaveFile;
             let default_file_name = format!("{file_name}.json");
             #[cfg(not(target_arch = "wasm32"))]
@@ -316,31 +411,39 @@ impl FileManager {
         }
     }
 
-    fn reload_preview(ctx: &egui::Context, bd: &GridBD, theme: Theme) {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn reload_preview(ctx: &egui::Context, db: &GridDB, theme: Theme) {
         ctx.loaders().bytes.lock().iter().for_each(|loader| {
             loader.forget("bytes://preview.svg");
         });
-        let svg = bd.dump_to_svg(theme, 100.0);
+        let svg = db.dump_to_svg(theme, 100.0);
         let bytes = svg.as_bytes();
         _ = egui::ImageSource::Bytes {
             uri: format!("bytes://preview.svg").into(),
             bytes: egui::load::Bytes::Shared(Arc::from(bytes)),
         }
-        .load(ctx, TextureOptions::default(), SizeHint::Scale(1.0.into()));
+        .load(
+            ctx,
+            egui::TextureOptions::default(),
+            egui::SizeHint::Scale(1.0.into()),
+        );
     }
 
-    pub fn start_export_svg(&mut self, ctx: &egui::Context, bd: &GridBD, default_theme: Theme) {
-        Self::reload_preview(ctx, bd, default_theme);
+    #[allow(unused_variables)]
+    pub fn start_export_svg(&mut self, ctx: &egui::Context, db: &GridDB, default_theme: Theme) {
+        #[cfg(not(target_arch = "wasm32"))]
+        Self::reload_preview(ctx, db, default_theme);
+
         self.state = FileManagerState::ExportSVGDialog {
             export_theme: default_theme,
             cell_size: "40".into(),
         };
     }
 
-    fn export_to_svg(&mut self, bd: &GridBD, file_name: &String, theme: Theme, grid_size: f32) {
+    fn export_to_svg(&mut self, db: &GridDB, file_name: &String, theme: Theme, grid_size: f32) {
         self.state = FileManagerState::ExportSVG;
         let default_file_name = format!("{file_name}.svg");
-        let data = bd.dump_to_svg(theme, grid_size);
+        let data = db.dump_to_svg(theme, grid_size);
         #[cfg(not(target_arch = "wasm32"))]
         {
             let arc = self.done.clone().clone();

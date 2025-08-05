@@ -83,7 +83,7 @@ pub fn show_text_with_debounce(
             Rotation::ROT0 => vec2(align_factor.x * size.x, align_factor.y * size.y),
             Rotation::ROT90 => vec2(-align_factor.y * size.y, align_factor.x * size.x),
             Rotation::ROT180 => vec2(-align_factor.x * size.x, -align_factor.y * size.y),
-            Rotation::ROT270 => vec2(align_factor.y * size.y, align_factor.x * size.x),
+            Rotation::ROT270 => vec2(align_factor.y * size.y, 0.0),
         }
     };
 
@@ -143,7 +143,16 @@ pub fn show_text_edit(
     edit_buffer: &mut String,
     state: &FieldState,
     ui: &mut Ui,
+    painter: &Painter,
 ) {
+    if !single_line {
+        painter.rect_filled(
+            text_edit_rect,
+            state.grid_size * 0.1,
+            ui.ctx().theme().get_stroke_color().gamma_multiply_u8(127),
+        );
+    }
+
     let style = if state.debounce {
         let mut style = (*ui.ctx().style()).clone();
         style.visuals.selection.bg_fill = Color32::TRANSPARENT;

@@ -289,7 +289,10 @@ impl PrimitiveComponent {
 
         // Draw connections:
         if state.scale > Field::LOD_LEVEL_MIN_SCALE {
-            let radius = state.grid_size * Self::CONNECTION_SCALE;
+            let radius = match self.typ {
+                PrimitiveType::Point => state.grid_size * 0.2,
+                _ => state.grid_size * Self::CONNECTION_SCALE,
+            };
             (0..self.typ.get_connections_number()).for_each(|i| {
                 painter.circle_filled(
                     self.apply_rotation(
@@ -341,7 +344,10 @@ impl PrimitiveComponent {
         }
 
         // Ports:
-        let radius = Self::CONNECTION_SCALE * scale;
+        let radius = match self.typ {
+            PrimitiveType::Point => scale * 0.2,
+            _ => scale * Self::CONNECTION_SCALE,
+        };
         (0..self.typ.get_connections_number()).for_each(|i| {
             result.push_str(
                 &(svg_circle_filled(

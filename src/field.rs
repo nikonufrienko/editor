@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
-    grid_db::{GridBD, GridPos, LodLevel, grid_pos, grid_rect},
+    components_panel::DragComponentResponse,
+    grid_db::{GridDB, GridPos, LodLevel, grid_pos, grid_rect},
     interaction_manager::{InteractionManager, draw_component_drag_preview},
     locale::Locale,
-    preview::DragComponentResponse,
 };
 
 use web_time::{Duration, Instant};
@@ -134,7 +134,7 @@ pub fn blocked_cell(state: &FieldState, pos: &GridPos) -> Vec<Shape> {
 pub struct Field {
     pub state: FieldState,
     pub grid_type: GridType,
-    pub grid_db: GridBD,
+    pub grid_db: GridDB,
     external_drag_resp: DragComponentResponse,
     interaction_manager: InteractionManager,
     debounce_inst: Instant,
@@ -155,7 +155,7 @@ impl Field {
 
     pub fn new() -> Self {
         let scale = (Self::MAX_SCALE / 40.0).max(Self::MIN_SCALE);
-        let db = GridBD::new();
+        let db = GridDB::new();
         Self {
             state: FieldState {
                 scale: scale,

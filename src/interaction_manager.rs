@@ -3,7 +3,7 @@ use std::collections::LinkedList;
 use crate::{
     field::{FieldState, blocked_cell, filled_cells},
     grid_db::{
-        Component, ComponentAction, ComponentColor, GridBD, GridBDConnectionPoint, GridPos, Id,
+        Component, ComponentAction, ComponentColor, GridDB, GridDBConnectionPoint, GridPos, Id,
         Net, Port, RotationDirection, grid_pos, show_text_edit,
     },
     locale::Locale,
@@ -14,7 +14,7 @@ use egui::{
 };
 
 pub fn draw_component_drag_preview(
-    bd: &GridBD,
+    db: &GridDB,
     state: &FieldState,
     dim: (i32, i32),
     painter: &Painter,
@@ -29,9 +29,9 @@ pub fn draw_component_drag_preview(
         for y in 0..dim.1 {
             let cell = p0 + grid_pos(x, y);
             let available = if let Some(id) = component_id {
-                bd.is_available_cell(cell, id)
+                db.is_available_cell(cell, id)
             } else {
-                bd.is_free_cell(cell, only_overlap)
+                db.is_free_cell(cell, only_overlap)
             };
             if available {
                 result.push(filled_cells(state, &cell, 1, 1, fill_color));
@@ -92,19 +92,19 @@ impl InteractionManager {
         }
     }
 
-    pub fn add_new_component(&mut self, component: Component, bd: &mut GridBD) {
+    pub fn add_new_component(&mut self, component: Component, db: &mut GridDB) {
         self.apply_new_transaction(
             Transaction::ChangeComponent {
-                comp_id: bd.allocate_component(),
+                comp_id: db.allocate_component(),
                 old_comp: None,
                 new_comp: Some(component),
             },
-            bd,
+            db,
         );
     }
 
-    fn apply_new_transaction(&mut self, mut transaction: Transaction, bd: &mut GridBD) {
-        transaction.apply(bd);
+    fn apply_new_transaction(&mut self, mut transaction: Transaction, db: &mut GridDB) {
+        transaction.apply(db);
         self.applied_transactions.push_back(transaction);
         self.reverted_transactions.clear();
     }
@@ -114,10 +114,10 @@ impl InteractionManager {
         net_id: Id,
         segment_id: Id,
         cursor_grid_pos: &GridPos,
-        bd: &mut GridBD,
+        db: &mut GridDB,
     ) {
         let GridPos { x, y } = cursor_grid_pos;
-        let mut net = bd.get_net(&net_id).unwrap().clone();
+        let mut net = db.get_net(&net_id).unwrap().clone();
         let p1: GridPos = net.points[segment_id];
         let p2 = net.points[segment_id + 1];
         if p1.y == p2.y {
@@ -140,17 +140,17 @@ impl InteractionManager {
                 old_net: None,
                 new_net: Some(net),
             },
-            bd,
+            db,
         );
     }
 
     fn get_net_connection_move_transaction(
         net_id: Id,
-        bd: &GridBD,
+        db: &GridDB,
         (delta_x_start, delta_y_start): (i32, i32),
         (delta_x_end, delta_y_end): (i32, i32),
     ) -> Option<Transaction> {
-        let mut net = bd.get_net(&net_id).unwrap().clone();
+        let mut net = db.get_net(&net_id).unwrap().clone();
         let pts_len = net.points.len();
 
         if delta_x_start == 0 && delta_y_start == 0 && delta_x_end == 0 && delta_y_end == 0 {
@@ -232,10 +232,10 @@ impl InteractionManager {
         });
     }
 
-    fn move_component(&mut self, comp_id: Id, bd: &mut GridBD, new_pos: GridPos) {
-        let comp = bd.get_component(&comp_id).unwrap();
+    fn move_component(&mut self, comp_id: Id, db: &mut GridDB, new_pos: GridPos) {
+        let comp = db.get_component(&comp_id).unwrap();
 
-        if bd.is_available_location(new_pos, comp.get_dimension(), comp_id) {
+        if db.is_available_location(new_pos, comp.get_dimension(), comp_id) {
             let old_pos = comp.get_position();
             let delta_y = new_pos.y - old_pos.y;
             let delta_x = new_pos.x - old_pos.x;
@@ -244,11 +244,11 @@ impl InteractionManager {
             new_comp.set_pos(new_pos);
 
             let mut transactions = LinkedList::new();
-            for net_id in bd.get_connected_nets(&comp_id) {
-                let net = bd.get_net(&net_id).unwrap();
+            for net_id in db.get_connected_nets(&comp_id) {
+                let net = db.get_net(&net_id).unwrap();
                 let trans = Self::get_net_connection_move_transaction(
                     net_id,
-                    bd,
+                    db,
                     if net.start_point.component_id == comp_id {
                         (delta_x, delta_y)
                     } else {
@@ -269,18 +269,18 @@ impl InteractionManager {
                 old_comp: None,
                 new_comp: Some(new_comp),
             });
-            self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
+            self.apply_new_transaction(Transaction::CombinedTransaction(transactions), db);
         }
     }
 
     fn get_net_rotation_transaction(
         net_id: Id,
-        bd: &GridBD,
+        db: &GridDB,
         rot_center: GridPos,
         offset: GridPos,
         rotation_dir: RotationDirection,
     ) -> Transaction {
-        let mut new_net = bd.get_net(&net_id).unwrap().clone();
+        let mut new_net = db.get_net(&net_id).unwrap().clone();
         for p in &mut new_net.points {
             let dx = p.x - rot_center.x;
             let dy = p.y - rot_center.y;
@@ -303,17 +303,17 @@ impl InteractionManager {
         };
     }
 
-    fn rotate_component(&mut self, comp_id: Id, bd: &mut GridBD, dir: RotationDirection) {
-        let comp = bd.get_component(&comp_id).unwrap().clone();
+    fn rotate_component(&mut self, comp_id: Id, db: &mut GridDB, dir: RotationDirection) {
+        let comp = db.get_component(&comp_id).unwrap().clone();
         let mut rotated_comp = comp.clone();
         rotated_comp.rotate(dir);
 
-        if bd.is_available_location(
+        if db.is_available_location(
             rotated_comp.get_position(),
             rotated_comp.get_dimension(),
             comp_id,
         ) {
-            let nets_ids: Vec<Id> = bd
+            let nets_ids: Vec<Id> = db
                 .get_connected_nets(&comp_id)
                 .iter()
                 .map(|it| *it)
@@ -321,12 +321,12 @@ impl InteractionManager {
 
             let mut transactions = LinkedList::new();
             for net_id in nets_ids.iter() {
-                let net = bd.get_net(&net_id).unwrap();
+                let net = db.get_net(&net_id).unwrap();
                 if net.end_point.component_id == comp_id && net.start_point.component_id == comp_id
                 {
                     transactions.push_back(Self::get_net_rotation_transaction(
                         *net_id,
-                        bd,
+                        db,
                         comp.get_position(),
                         match dir {
                             RotationDirection::Up => grid_pos(comp.get_dimension().1 - 1, 0),
@@ -337,7 +337,7 @@ impl InteractionManager {
                 } else {
                     let trans = Self::get_net_connection_move_transaction(
                         *net_id,
-                        bd,
+                        db,
                         if net.start_point.component_id == comp_id {
                             let old_cell = comp
                                 .get_connection_dock_cell(net.start_point.connection_id)
@@ -372,30 +372,30 @@ impl InteractionManager {
                 old_comp: None,
                 new_comp: Some(rotated_comp),
             });
-            self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
+            self.apply_new_transaction(Transaction::CombinedTransaction(transactions), db);
         }
     }
 
-    fn apply_resize(&mut self, bd: &mut GridBD, comp_id: Id, new_size: (i32, i32)) {
-        let comp = bd.get_component(&comp_id).unwrap();
+    fn apply_resize(&mut self, db: &mut GridDB, comp_id: Id, new_size: (i32, i32)) {
+        let comp = db.get_component(&comp_id).unwrap();
 
-        if bd.is_available_location(comp.get_position(), new_size, comp_id) {
+        if db.is_available_location(comp.get_position(), new_size, comp_id) {
             let mut transactions = LinkedList::new();
             let mut new_comp = comp.clone();
             new_comp.set_size(new_size);
 
             // Refresh connected nets:
-            let nets_ids: Vec<Id> = bd
+            let nets_ids: Vec<Id> = db
                 .get_connected_nets(&comp_id)
                 .iter()
                 .map(|it| *it)
                 .collect();
 
             for net_id in &nets_ids {
-                let net = bd.get_net(&net_id).unwrap();
+                let net = db.get_net(&net_id).unwrap();
                 let trans = Self::get_net_connection_move_transaction(
                     *net_id,
-                    bd,
+                    db,
                     if net.start_point.component_id == comp_id {
                         let old_cell = comp
                             .get_connection_dock_cell(net.start_point.connection_id)
@@ -429,13 +429,13 @@ impl InteractionManager {
                 new_comp: Some(new_comp),
             });
 
-            self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
+            self.apply_new_transaction(Transaction::CombinedTransaction(transactions), db);
         }
     }
 
-    fn remove_component(&mut self, bd: &mut GridBD, comp_id: Id) {
+    fn remove_component(&mut self, db: &mut GridDB, comp_id: Id) {
         let mut transactions = LinkedList::new();
-        for net_id in bd.get_connected_nets(&comp_id) {
+        for net_id in db.get_connected_nets(&comp_id) {
             transactions.push_back(Transaction::ChangeNet {
                 net_id: net_id,
                 old_net: None,
@@ -447,17 +447,17 @@ impl InteractionManager {
             old_comp: None,
             new_comp: None,
         });
-        self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
+        self.apply_new_transaction(Transaction::CombinedTransaction(transactions), db);
     }
 
     const UNDO_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::CTRL, egui::Key::Z);
     const REDO_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::CTRL, egui::Key::Y);
 
-    fn remove_port(&mut self, bd: &mut GridBD, comp_id: Id, port_id: Id) {
+    fn remove_port(&mut self, db: &mut GridDB, comp_id: Id, port_id: Id) {
         let mut transactions = LinkedList::new();
         // Refresh connected net:
-        for net_id in bd.get_connected_nets(&comp_id) {
-            let net = bd.get_net(&net_id).unwrap();
+        for net_id in db.get_connected_nets(&comp_id) {
+            let net = db.get_net(&net_id).unwrap();
             if (net.end_point.connection_id == port_id && net.end_point.component_id == comp_id)
                 || (net.start_point.connection_id == port_id
                     && net.start_point.component_id == comp_id)
@@ -484,24 +484,24 @@ impl InteractionManager {
                 });
             }
         }
-        let mut new_comp = bd.get_component(&comp_id).unwrap().clone();
+        let mut new_comp = db.get_component(&comp_id).unwrap().clone();
         new_comp.remove_port(port_id);
         transactions.push_back(Transaction::ChangeComponent {
             comp_id: comp_id,
             old_comp: None,
             new_comp: Some(new_comp),
         });
-        self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
+        self.apply_new_transaction(Transaction::CombinedTransaction(transactions), db);
     }
 
-    fn apply_customization(&mut self, bd: &mut GridBD, comp_id: Id, customized_comp: Component) {
-        let old_comp = bd.get_component(&comp_id).unwrap();
+    fn apply_customization(&mut self, db: &mut GridDB, comp_id: Id, customized_comp: Component) {
+        let old_comp = db.get_component(&comp_id).unwrap();
         let connections_diff = old_comp.get_connections_diff(&customized_comp);
         let mut transactions = LinkedList::new();
 
         // Rebuild connected nets:
-        for net_id in &bd.get_connected_nets(&comp_id) {
-            let net = bd.get_net(&net_id).unwrap();
+        for net_id in &db.get_connected_nets(&comp_id) {
+            let net = db.get_net(&net_id).unwrap();
             let mut new_net = net.clone();
             let mut remove_net = false;
 
@@ -527,7 +527,7 @@ impl InteractionManager {
                 // Rebuild net:
                 Self::get_net_connection_move_transaction(
                     *net_id,
-                    bd,
+                    db,
                     if net.start_point.component_id == comp_id {
                         let p0 = old_comp
                             .get_connection_dock_cell(net.start_point.connection_id)
@@ -569,14 +569,14 @@ impl InteractionManager {
             old_comp: None,
             new_comp: Some(customized_comp),
         });
-        self.apply_new_transaction(Transaction::CombinedTransaction(transactions), bd);
+        self.apply_new_transaction(Transaction::CombinedTransaction(transactions), db);
     }
 
     /// Refreshes action state.
     /// Returns false if no action performed.
     pub fn refresh(
         &mut self,
-        bd: &mut GridBD,
+        db: &mut GridDB,
         state: &FieldState,
         response: &Response,
         ui: &egui::Ui,
@@ -594,7 +594,7 @@ impl InteractionManager {
                     match self.state {
                         InteractionState::Idle => {
                             if let Some(mut trans) = self.applied_transactions.pop_back() {
-                                trans.revert(bd);
+                                trans.revert(db);
                                 self.reverted_transactions.push_front(trans);
                             }
                         }
@@ -607,7 +607,7 @@ impl InteractionManager {
                     match self.state {
                         InteractionState::Idle => {
                             if let Some(mut trans) = self.reverted_transactions.pop_front() {
-                                trans.apply(bd);
+                                trans.apply(db);
                                 self.applied_transactions.push_back(trans);
                             }
                         }
@@ -620,7 +620,7 @@ impl InteractionManager {
         match &self.state {
             InteractionState::NetDragged { net_id, segment_id } => {
                 if let Some(hover_pos) = state.cursor_pos {
-                    let segment = bd
+                    let segment = db
                         .nets
                         .get(&net_id)
                         .unwrap()
@@ -642,14 +642,14 @@ impl InteractionManager {
                             *net_id,
                             *segment_id,
                             &state.screen_to_grid(hover_pos),
-                            bd,
+                            db,
                         );
                         self.state = InteractionState::Idle
                     }
                 }
             }
             InteractionState::Idle => {
-                if let Some(resp) = self.connection_builder.update(bd, state, &response) {
+                if let Some(resp) = self.connection_builder.update(db, state, &response) {
                     match resp {
                         ConnectionBuilderResponse::Toggled => {
                             self.state = InteractionState::CreatingNet;
@@ -660,7 +660,7 @@ impl InteractionManager {
                             panic!("Unexpected complete of building connection")
                         }
                     }
-                } else if let Some(segment) = bd.get_hovered_segment(state) {
+                } else if let Some(segment) = db.get_hovered_segment(state) {
                     if segment.is_horizontal() {
                         ui.ctx()
                             .output_mut(|o| o.cursor_icon = CursorIcon::ResizeVertical);
@@ -677,7 +677,7 @@ impl InteractionManager {
                         };
                         return true;
                     }
-                } else if let Some(id) = bd.get_hovered_component_id(state) {
+                } else if let Some(id) = db.get_hovered_component_id(state) {
                     ui.ctx()
                         .output_mut(|o| o.cursor_icon = CursorIcon::Crosshair);
                     if response.clicked() {
@@ -687,7 +687,7 @@ impl InteractionManager {
                 }
             }
             InteractionState::ComponentSelected(id) => {
-                let comp = bd.get_component(&id).unwrap();
+                let comp = db.get_component(&id).unwrap();
                 let resizable = comp.is_resizable();
                 let right_border_hovered =
                     Self::is_right_selection_border_hovered(state.cursor_pos, state, comp);
@@ -697,22 +697,22 @@ impl InteractionManager {
                 // Check actions:
                 let action = Self::get_action(comp, state);
                 if ui.input(|i| i.key_pressed(egui::Key::Delete)) {
-                    self.remove_component(bd, *id);
+                    self.remove_component(db, *id);
                     self.state = InteractionState::Idle;
                     return true;
                 }
                 if response.clicked() && action != ComponentAction::None {
                     match action {
                         ComponentAction::RotateUp => {
-                            self.rotate_component(*id, bd, RotationDirection::Up);
+                            self.rotate_component(*id, db, RotationDirection::Up);
                             self.state = InteractionState::Idle;
                         }
                         ComponentAction::RotateDown => {
-                            self.rotate_component(*id, bd, RotationDirection::Down);
+                            self.rotate_component(*id, db, RotationDirection::Down);
                             self.state = InteractionState::Idle;
                         }
                         ComponentAction::Remove => {
-                            self.remove_component(bd, *id);
+                            self.remove_component(db, *id);
                             self.state = InteractionState::Idle;
                             return true;
                         }
@@ -739,7 +739,7 @@ impl InteractionManager {
                         ComponentAction::Customize => {
                             self.state = InteractionState::CustomizeComponent {
                                 id: *id,
-                                buffer: bd.get_component(id).unwrap().clone(),
+                                buffer: db.get_component(id).unwrap().clone(),
                             };
                             return true;
                         }
@@ -790,7 +790,7 @@ impl InteractionManager {
                         .output_mut(|o| o.cursor_icon = CursorIcon::Grabbing);
                 } else {
                     if let Some(pos) = state.cursor_pos {
-                        self.move_component(*id, bd, state.screen_to_grid(pos - *grab_ofs));
+                        self.move_component(*id, db, state.screen_to_grid(pos - *grab_ofs));
                     }
                     self.state = InteractionState::Idle;
                 }
@@ -805,9 +805,9 @@ impl InteractionManager {
                         }
                     });
                 } else {
-                    let comp = bd.get_component(&id).unwrap();
+                    let comp = db.get_component(&id).unwrap();
                     if let Some(new_size) = Self::get_new_size(comp, state, *direction) {
-                        self.apply_resize(bd, *id, new_size);
+                        self.apply_resize(db, *id, new_size);
                     }
                     self.state = InteractionState::Idle;
                 }
@@ -818,7 +818,7 @@ impl InteractionManager {
                 text_edit_id,
                 text_buffer,
             } => {
-                let comp = bd.get_component(&id).unwrap();
+                let comp = db.get_component(&id).unwrap();
                 let text_edit_rect = comp.get_text_edit_rect(*text_edit_id, state).unwrap();
 
                 if response.clicked() {
@@ -834,7 +834,7 @@ impl InteractionManager {
                                     old_comp: None,
                                     new_comp: Some(new_comp),
                                 },
-                                bd,
+                                db,
                             );
                             self.state = InteractionState::Idle;
                             return true;
@@ -843,10 +843,10 @@ impl InteractionManager {
                 }
             }
             InteractionState::CreatingNet => {
-                if let Some(resp) = self.connection_builder.update(bd, state, response) {
+                if let Some(resp) = self.connection_builder.update(db, state, response) {
                     match resp {
                         ConnectionBuilderResponse::Complete(t) => {
-                            self.apply_new_transaction(t, bd);
+                            self.apply_new_transaction(t, db);
                             debug_assert!(!self.connection_builder.is_active());
                             self.state = InteractionState::Idle;
                             return true;
@@ -857,7 +857,7 @@ impl InteractionManager {
                 }
             }
             InteractionState::AddingPort(id) => {
-                let comp = bd.get_component(id).unwrap();
+                let comp = db.get_component(id).unwrap();
                 if response.clicked() && !comp.is_hovered(state) {
                     self.state = InteractionState::Idle;
                     return true;
@@ -875,25 +875,25 @@ impl InteractionManager {
                                 old_comp: None,
                                 new_comp: Some(new_comp),
                             },
-                            bd,
+                            db,
                         );
                     }
                 }
             }
             InteractionState::RemovingPort(id) => {
                 // TODO
-                let comp = bd.get_component(id).unwrap();
+                let comp = db.get_component(id).unwrap();
                 if response.clicked() && !comp.is_hovered(state) {
                     self.state = InteractionState::Idle;
                     return true;
                 } else if response.clicked() {
                     if let Some((_, _, port_id)) = comp.get_nearest_port_pos(state, true) {
-                        self.remove_port(bd, *id, port_id.unwrap());
+                        self.remove_port(db, *id, port_id.unwrap());
                     }
                 }
             }
             InteractionState::EditingPort(id) => {
-                let comp = bd.get_component(id).unwrap();
+                let comp = db.get_component(id).unwrap();
                 if response.clicked() && !comp.is_hovered(state) {
                     self.state = InteractionState::Idle;
                     return true;
@@ -927,7 +927,7 @@ impl InteractionManager {
                     if let InteractionState::CustomizeComponent { id, buffer } =
                         std::mem::replace(&mut self.state, InteractionState::Idle)
                     {
-                        self.apply_customization(bd, id, buffer);
+                        self.apply_customization(db, id, buffer);
                         return true;
                     } else {
                         panic!();
@@ -938,13 +938,13 @@ impl InteractionManager {
         false
     }
 
-    pub fn draw(&mut self, bd: &mut GridBD, state: &FieldState, painter: &Painter, ui: &mut Ui) {
+    pub fn draw(&mut self, db: &mut GridDB, state: &FieldState, painter: &Painter, ui: &mut Ui) {
         match &mut self.state {
             InteractionState::NetDragged { net_id, segment_id } => {
                 let ofs = vec2(0.5, 0.5) * state.grid_size;
                 if let Some(pos) = state.cursor_pos {
                     let GridPos { x, y } = state.screen_to_grid(pos);
-                    let segment = bd
+                    let segment = db
                         .nets
                         .get(&net_id)
                         .unwrap()
@@ -962,7 +962,7 @@ impl InteractionManager {
                         )
                     };
                     let mut pts = vec![p1 + ofs, p2 + ofs];
-                    if let Some(next_segment) = bd
+                    if let Some(next_segment) = db
                         .nets
                         .get(&net_id)
                         .unwrap()
@@ -972,7 +972,7 @@ impl InteractionManager {
                     } else {
                         pts.push(state.grid_to_screen(&segment.pos2) + ofs);
                     }
-                    if let Some(prev_segment) = bd
+                    if let Some(prev_segment) = db
                         .nets
                         .get(&net_id)
                         .unwrap()
@@ -992,14 +992,14 @@ impl InteractionManager {
                 }
             }
             InteractionState::Idle => {
-                if !self.connection_builder.draw(bd, state, painter) {
-                    if let Some(seg) = bd.get_hovered_segment(state) {
+                if !self.connection_builder.draw(db, state, painter) {
+                    if let Some(seg) = db.get_hovered_segment(state) {
                         seg.highlight(state, &painter);
                     }
                 }
             }
             InteractionState::ComponentSelected(id) => {
-                if let Some(comp) = bd.get_component(&id) {
+                if let Some(comp) = db.get_component(&id) {
                     let rect = Self::get_selection_rect(comp, state);
                     painter.rect_stroke(
                         rect,
@@ -1015,11 +1015,11 @@ impl InteractionManager {
             }
             InteractionState::ComponentDragged { id, grab_ofs } => {
                 if let Some(pos) = state.cursor_pos {
-                    let comp = bd.get_component(&id).unwrap().is_overlap_only();
+                    let comp = db.get_component(&id).unwrap().is_overlap_only();
                     draw_component_drag_preview(
-                        bd,
+                        db,
                         state,
-                        bd.get_component(&id).unwrap().get_dimension(),
+                        db.get_component(&id).unwrap().get_dimension(),
                         painter,
                         pos - *grab_ofs,
                         Some(*id),
@@ -1029,7 +1029,7 @@ impl InteractionManager {
                 }
             }
             InteractionState::Resizing { id, direction } => {
-                if let Some(comp) = bd.get_component(&id) {
+                if let Some(comp) = db.get_component(&id) {
                     if let Some(resize_rect) =
                         Self::get_resize_selection_rect(comp, state, *direction)
                     {
@@ -1050,23 +1050,19 @@ impl InteractionManager {
                 text_edit_id,
                 text_buffer,
             } => {
-                let comp = bd.get_component_mut(&id).unwrap();
+                let comp = db.get_component_mut(&id).unwrap();
                 let text_edit_rect = comp.get_text_edit_rect(*text_edit_id, state).unwrap();
-                painter.rect_filled(
-                    text_edit_rect,
-                    state.grid_size * 0.1,
-                    ui.ctx().theme().get_stroke_color().gamma_multiply_u8(127),
-                );
                 show_text_edit(
                     text_edit_rect,
                     comp.is_single_line_text_edit(),
                     text_buffer,
                     state,
                     ui,
+                    painter,
                 );
             }
             InteractionState::AddingPort(id) => {
-                let comp = bd.get_component(id).unwrap();
+                let comp = db.get_component(id).unwrap();
                 let rect = Self::get_selection_rect(comp, state);
                 painter.rect_stroke(
                     rect,
@@ -1092,7 +1088,7 @@ impl InteractionManager {
                 }
             }
             InteractionState::EditingPort(id) => {
-                let comp = bd.get_component(id).unwrap();
+                let comp = db.get_component(id).unwrap();
 
                 let rect = Self::get_selection_rect(comp, state);
                 painter.rect_stroke(
@@ -1140,7 +1136,7 @@ impl InteractionManager {
             }
 
             InteractionState::RemovingPort(id) => {
-                let comp = bd.get_component(id).unwrap();
+                let comp = db.get_component(id).unwrap();
 
                 let rect = Self::get_selection_rect(comp, state);
                 painter.rect_stroke(
@@ -1167,7 +1163,7 @@ impl InteractionManager {
                 }
             }
             InteractionState::CreatingNet => {
-                self.connection_builder.draw(bd, state, painter);
+                self.connection_builder.draw(db, state, painter);
             }
             _ => {}
         }
@@ -1289,7 +1285,7 @@ enum ResizeDirection {
 enum ConnectionBuilderState {
     IDLE,
     ACTIVE {
-        point: GridBDConnectionPoint,
+        point: GridDBConnectionPoint,
         anchors: Vec<GridPos>,
     },
 }
@@ -1334,22 +1330,22 @@ fn simplify_path(mut path: Vec<GridPos>) -> Vec<GridPos> {
 impl ConnectionBuilder {
     fn generate_full_path_by_anchors(
         &self,
-        bd: &GridBD,
-        target: &GridBDConnectionPoint,
+        db: &GridDB,
+        target: &GridDBConnectionPoint,
     ) -> Option<Vec<GridPos>> {
         match &self.state {
             ConnectionBuilderState::ACTIVE { point, anchors } => {
-                let comp1 = bd.get_component(&point.component_id)?;
+                let comp1 = db.get_component(&point.component_id)?;
                 let mut result = vec![comp1.get_connection_dock_cell(point.connection_id).unwrap()];
                 anchors.iter().for_each(|a| {
-                    result.extend(bd.find_net_path(result.last().unwrap().clone(), a.clone())); // !!!
+                    result.extend(db.find_net_path(result.last().unwrap().clone(), a.clone())); // !!!
                     result.push(a.clone());
                 });
-                let target_comp = bd.get_component(&target.component_id).unwrap();
+                let target_comp = db.get_component(&target.component_id).unwrap();
                 let target_pos = target_comp
                     .get_connection_dock_cell(target.connection_id)
                     .unwrap();
-                result.extend(bd.find_net_path(result.last().unwrap().clone(), target_pos.clone())); // !!!
+                result.extend(db.find_net_path(result.last().unwrap().clone(), target_pos.clone())); // !!!
                 result.push(target_pos);
                 Some(simplify_path(result))
             }
@@ -1365,13 +1361,13 @@ impl ConnectionBuilder {
 
     fn update(
         &mut self,
-        bd: &mut GridBD,
+        db: &mut GridDB,
         state: &FieldState,
         response: &Response,
     ) -> Option<ConnectionBuilderResponse> {
-        if let Some(con) = bd.get_hovered_connection(&state) {
+        if let Some(con) = db.get_hovered_connection(&state) {
             if response.clicked() {
-                if let Some(t) = self.toggle(bd, con) {
+                if let Some(t) = self.toggle(db, con) {
                     return Some(ConnectionBuilderResponse::Complete(t));
                 } else {
                     return Some(ConnectionBuilderResponse::Toggled);
@@ -1388,8 +1384,8 @@ impl ConnectionBuilder {
 
     fn toggle(
         &mut self,
-        bd: &mut GridBD,
-        target_point: GridBDConnectionPoint,
+        db: &mut GridDB,
+        target_point: GridDBConnectionPoint,
     ) -> Option<Transaction> {
         match self.state {
             ConnectionBuilderState::IDLE => {
@@ -1401,9 +1397,9 @@ impl ConnectionBuilder {
             }
             ConnectionBuilderState::ACTIVE { point, anchors: _ } => {
                 let result =
-                    if let Some(points) = self.generate_full_path_by_anchors(bd, &target_point) {
+                    if let Some(points) = self.generate_full_path_by_anchors(db, &target_point) {
                         Some(Transaction::ChangeNet {
-                            net_id: bd.allocate_net(),
+                            net_id: db.allocate_net(),
                             old_net: None,
                             new_net: Some(Net {
                                 start_point: point,
@@ -1453,9 +1449,9 @@ impl ConnectionBuilder {
     }
 
     // Returns true, if connection point is hovered
-    pub fn draw(&self, bd: &GridBD, state: &FieldState, painter: &egui::Painter) -> bool {
-        let result = if let Some(con) = bd.get_hovered_connection(&state) {
-            bd.get_component(&con.component_id)
+    pub fn draw(&self, db: &GridDB, state: &FieldState, painter: &egui::Painter) -> bool {
+        let result = if let Some(con) = db.get_hovered_connection(&state) {
+            db.get_component(&con.component_id)
                 .unwrap()
                 .highlight_connection(con.connection_id, state, painter);
             true
@@ -1464,7 +1460,7 @@ impl ConnectionBuilder {
         };
         match &self.state {
             ConnectionBuilderState::ACTIVE { point, anchors } => {
-                if let Some(comp) = bd.get_component(&point.component_id) {
+                if let Some(comp) = db.get_component(&point.component_id) {
                     self.draw_anchors(state, painter);
                     let p1 = comp
                         .get_connection_position(point.connection_id, state)
@@ -1477,7 +1473,7 @@ impl ConnectionBuilder {
                     ];
                     let mut last_grid_p = p1_1_grid;
                     anchors.iter().for_each(|a| {
-                        let path = bd.find_net_path(last_grid_p.clone(), a.clone());
+                        let path = db.find_net_path(last_grid_p.clone(), a.clone());
                         points.extend(path.iter().map(|t| {
                             state.grid_to_screen(t)
                                 + vec2(0.5 * state.grid_size, 0.5 * state.grid_size)
@@ -1490,7 +1486,7 @@ impl ConnectionBuilder {
                     });
                     if let Some(p2) = state.cursor_pos {
                         points.extend(
-                            bd.find_net_path(
+                            db.find_net_path(
                                 state.screen_to_grid(points.last().unwrap().clone()),
                                 state.screen_to_grid(p2),
                             )
@@ -1551,11 +1547,11 @@ enum Transaction {
 }
 
 impl Transaction {
-    fn apply(&mut self, bd: &mut GridBD) {
+    fn apply(&mut self, db: &mut GridDB) {
         match self {
             Transaction::CombinedTransaction(sequence) => {
                 for t in sequence {
-                    t.apply(bd);
+                    t.apply(db);
                 }
             }
             Transaction::ChangeComponent {
@@ -1563,9 +1559,9 @@ impl Transaction {
                 old_comp,
                 new_comp,
             } => {
-                *old_comp = bd.remove_component(&id);
+                *old_comp = db.remove_component(&id);
                 if let Some(inserting_comp) = std::mem::replace(new_comp, None) {
-                    bd.insert_component(*id, inserting_comp);
+                    db.insert_component(*id, inserting_comp);
                 }
             }
 
@@ -1574,19 +1570,19 @@ impl Transaction {
                 old_net,
                 new_net,
             } => {
-                *old_net = bd.remove_net(&net_id);
+                *old_net = db.remove_net(&net_id);
                 if let Some(inserting_net) = std::mem::replace(new_net, None) {
-                    bd.insert_net(*net_id, inserting_net);
+                    db.insert_net(*net_id, inserting_net);
                 }
             }
         }
     }
 
-    fn revert(&mut self, bd: &mut GridBD) {
+    fn revert(&mut self, db: &mut GridDB) {
         match self {
             Transaction::CombinedTransaction(sequence) => {
                 for t in sequence.iter_mut().rev() {
-                    t.revert(bd);
+                    t.revert(db);
                 }
             }
             Transaction::ChangeComponent {
@@ -1594,9 +1590,9 @@ impl Transaction {
                 old_comp,
                 new_comp,
             } => {
-                *new_comp = bd.remove_component(&id);
+                *new_comp = db.remove_component(&id);
                 if let Some(inserting_comp) = std::mem::replace(old_comp, None) {
-                    bd.insert_component(*id, inserting_comp);
+                    db.insert_component(*id, inserting_comp);
                 }
             }
             Transaction::ChangeNet {
@@ -1604,9 +1600,9 @@ impl Transaction {
                 old_net,
                 new_net,
             } => {
-                *new_net = bd.remove_net(&net_id);
+                *new_net = db.remove_net(&net_id);
                 if let Some(inserting_net) = std::mem::replace(old_net, None) {
-                    bd.insert_net(*net_id, inserting_net);
+                    db.insert_net(*net_id, inserting_net);
                 }
             }
         }

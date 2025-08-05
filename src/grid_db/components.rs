@@ -16,7 +16,7 @@ use serde_with::serde_as;
 use crate::{
     field::{Field, FieldState, SVG_DUMMY_STATE},
     grid_db::{
-        ComponentColor, GridBD, GridBDConnectionPoint, GridRect, Id, LodLevel, PrimitiveType,
+        ComponentColor, GridDB, GridDBConnectionPoint, GridRect, Id, LodLevel, PrimitiveType,
         Rotation, STROKE_SCALE, TextField, grid_rect, mesh_line, show_text_with_debounce,
         svg_circle_filled, svg_line, svg_rect, svg_single_line_text,
     },
@@ -84,7 +84,7 @@ impl TextAlignment for Rotation {
             Self::ROT0 => Self::ROT0,
             Self::ROT90 => Self::ROT90,
             Self::ROT180 => Self::ROT0,
-            Self::ROT270 => Self::ROT90,
+            Self::ROT270 => Self::ROT270,
         }
     }
 
@@ -93,15 +93,15 @@ impl TextAlignment for Rotation {
             Self::ROT0 => Align2::LEFT_CENTER,
             Self::ROT90 => Align2::LEFT_CENTER,
             Self::ROT180 => Align2::RIGHT_CENTER,
-            Self::ROT270 => Align2::RIGHT_CENTER,
+            Self::ROT270 => Align2::LEFT_CENTER,
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Net {
-    pub start_point: GridBDConnectionPoint,
-    pub end_point: GridBDConnectionPoint,
+    pub start_point: GridDBConnectionPoint,
+    pub end_point: GridDBConnectionPoint,
     pub points: Vec<GridPos>,
 }
 
@@ -138,17 +138,17 @@ impl Net {
         width: f32,
         offset: GridPos,
         scale: f32,
-        bd: &GridBD,
+        db: &GridDB,
     ) -> Option<String> {
         if self.points.is_empty() {
             return Some(String::new());
         }
         let offset_vec2 = vec2(offset.x as f32, offset.y as f32);
-        let first_point = bd
+        let first_point = db
             .get_component(&self.start_point.component_id)?
             .get_connection_position(self.start_point.connection_id, &SVG_DUMMY_STATE)?
             + offset_vec2;
-        let last_point = bd
+        let last_point = db
             .get_component(&self.end_point.component_id)?
             .get_connection_position(self.end_point.connection_id, &SVG_DUMMY_STATE)?
             + offset_vec2;
@@ -587,10 +587,12 @@ impl Component {
             Component::Unit(u) => {
                 let port = u.ports.get(id)?;
                 let mut pos = state.grid_to_screen(&port.get_cell(&u.pos, (u.width, u.height)));
-                let w = state.grid_size * u.width as f32 * 0.5;
+                let w = state.grid_size * u.width.max(2) as f32 * 0.5;
                 match port.align {
-                    Rotation::ROT180 => pos -= vec2(w, 0.0),
-                    _ => {}
+                    Rotation::ROT0 => pos += vec2(0.5 * state.grid_size, 0.0),
+                    Rotation::ROT90 => pos += vec2(0.0, 0.5 * state.grid_size),
+                    Rotation::ROT180 => pos -= vec2(w - 0.5 * state.grid_size, 0.0),
+                    Rotation::ROT270 => {}
                 }
                 return Some(Rect::from_min_size(pos, vec2(w, state.grid_size)));
             }
@@ -749,8 +751,8 @@ pub struct NetSegment {
     pub net_id: Id,   // ID of net
     pub pos1: GridPos,
     pub pos2: GridPos,
-    con1: Option<GridBDConnectionPoint>, // if segment
-    con2: Option<GridBDConnectionPoint>, // Second position
+    con1: Option<GridDBConnectionPoint>, // if segment
+    con2: Option<GridDBConnectionPoint>, // Second position
 }
 
 impl NetSegment {
@@ -759,8 +761,8 @@ impl NetSegment {
         net_id: Id,
         pos1: GridPos,
         pos2: GridPos,
-        con1: Option<GridBDConnectionPoint>,
-        con2: Option<GridBDConnectionPoint>,
+        con1: Option<GridDBConnectionPoint>,
+        con2: Option<GridDBConnectionPoint>,
     ) -> Self {
         Self {
             inner_id,
@@ -776,7 +778,7 @@ impl NetSegment {
         self.pos1.y == self.pos2.y
     }
 
-    pub fn get_mesh(&self, bd: &GridBD, state: &FieldState, theme: Theme) -> Mesh {
+    pub fn get_mesh(&self, db: &GridDB, state: &FieldState, theme: Theme) -> Mesh {
         let w = (state.grid_size * 0.1).max(1.0);
         let ofs = Vec2::new(0.5 * state.grid_size, 0.5 * state.grid_size);
         let color = theme.get_stroke_color();
@@ -787,7 +789,7 @@ impl NetSegment {
         let mut pts = vec![p1, p2];
 
         if let Some(cp) = &self.con1 {
-            if let Some(comp) = bd.get_component(&cp.component_id) {
+            if let Some(comp) = db.get_component(&cp.component_id) {
                 pts.insert(
                     0,
                     comp.get_connection_position(cp.connection_id, state)
@@ -797,7 +799,7 @@ impl NetSegment {
         }
 
         if let Some(cp) = &self.con2 {
-            if let Some(comp) = bd.get_component(&cp.component_id) {
+            if let Some(comp) = db.get_component(&cp.component_id) {
                 pts.push(
                     comp.get_connection_position(cp.connection_id, state)
                         .unwrap(),

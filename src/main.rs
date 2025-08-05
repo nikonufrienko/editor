@@ -1,32 +1,33 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use eframe::{Storage, egui};
-use std::sync::Arc;
 
 use egui::{
     CursorIcon, Id, KeyboardShortcut, LayerId, Modifiers, Rect, Sense, Stroke, Theme, vec2,
 };
 
 use crate::{
+    components_panel::ComponentsPanel,
     field::{Field, SUPPORTED_GRID_TYPES},
     file_managment::FileManager,
     helpers::Helpers,
-    locale::SUPPORTED_LOCALES,
-    preview::PreviewPanel,
+    locale::{LocaleType, SUPPORTED_LOCALES},
     settings::{AppSettings, GetName, SUPPORTED_THEMES},
 };
 
 mod component_lib;
+mod components_panel;
 mod field;
 mod file_managment;
 mod grid_db;
 mod helpers;
 mod interaction_manager;
 mod locale;
-mod preview;
 mod settings;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
+    use std::sync::Arc;
+
     let icon_data = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon-256.png"))
         .expect("The icon data must be valid");
 
@@ -43,10 +44,35 @@ fn main() {
         "Editor",
         options,
         Box::new(|cc| {
+            #[cfg(feature = "unifont")]
+            load_unifont(cc);
             egui_extras::install_image_loaders(&cc.egui_ctx);
             Ok(Box::new(EditorApp::new(cc)))
         }),
     );
+}
+
+#[cfg(feature = "unifont")]
+fn load_unifont(cc: &CreationContext) {
+    use eframe::CreationContext;
+    use egui::{
+        FontData,
+        epaint::text::{FontInsert, FontPriority, InsertFontFamily},
+    };
+    cc.egui_ctx.add_font(FontInsert::new(
+        "unifont",
+        FontData::from_static(include_bytes!("../assets/fonts/unifont-16.0.04.otf")),
+        vec![
+            InsertFontFamily {
+                family: egui::FontFamily::Proportional,
+                priority: FontPriority::Lowest,
+            },
+            InsertFontFamily {
+                family: egui::FontFamily::Monospace,
+                priority: FontPriority::Lowest,
+            },
+        ],
+    ));
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -78,6 +104,8 @@ fn main() {
                 canvas,
                 web_options,
                 Box::new(|cc| {
+                    #[cfg(feature = "unifont")]
+                    load_unifont(cc);
                     egui_extras::install_image_loaders(&cc.egui_ctx);
                     Ok(Box::new(EditorApp::new(cc)))
                 }),
@@ -103,7 +131,7 @@ fn main() {
 
 struct EditorApp {
     field: Field,
-    preview_window: PreviewPanel,
+    preview_window: ComponentsPanel,
     locale: locale::LocaleType,
     file_manager: FileManager,
     helpers: Helpers,
@@ -124,8 +152,12 @@ impl EditorApp {
 
         EditorApp {
             field: field,
-            preview_window: PreviewPanel::new(),
-            locale: settings.locale,
+            preview_window: ComponentsPanel::new(),
+            locale: if settings.locale.is_supported() {
+                settings.locale
+            } else {
+                LocaleType::En
+            },
             file_manager: FileManager::new(),
             helpers: Helpers::new(cc),
             file_name: "Untitled".into(),
@@ -180,11 +212,9 @@ impl eframe::App for EditorApp {
                         ui.menu_button(locale.language, |ui| {
                             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                             SUPPORTED_LOCALES.iter().for_each(|locale| {
-                                ui.radio_value(
-                                    &mut self.locale,
-                                    *locale,
-                                    locale.locale().locale_name,
-                                );
+                                ui.add_enabled_ui(locale.is_supported(), |ui| {
+                                    ui.radio_value(&mut self.locale, *locale, locale.get_name());
+                                });
                             });
                         });
                         ui.menu_button(locale.theme, |ui| {
