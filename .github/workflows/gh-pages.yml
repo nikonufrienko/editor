@@ -1,0 +1,38 @@
+name: Deploy WASM to GitHub Pages
+
+on:
+  push:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust and WASM target
+        run: |
+          rustup install 1.86.0
+          rustup default 1.86.0
+          rustup target add wasm32-unknown-unknown
+          cargo install trunk --locked
+
+      - name: Build with Trunk (Release)
+        run: |
+          trunk build --release --public-url /editor/
+
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
