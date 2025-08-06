@@ -51,8 +51,9 @@ impl TextField {
             .split("\n")
             .enumerate()
             .map(|(i, line)| {
+                let encoded_text = html_escape::encode_text(line);
                 let dy = if i == 0 { 0.0 } else { font_size };
-                format!(r#"<tspan x="{x}" dy="{dy}">{line}</tspan>"#)
+                format!(r#"<tspan x="{x}" dy="{dy}">{encoded_text}</tspan>"#)
             })
             .collect::<Vec<String>>()
             .join("");

@@ -300,8 +300,9 @@ pub fn svg_single_line_text(
         Align::BOTTOM => "baseline",
     };
 
+    let encoded_text = html_escape::encode_text(&text);
     format!(
-        r#"<text x="{x}" y="{y}" font-family="monospace" font-size="{font_size}" fill="{color}" text-anchor="{text_anchor}" dominant-baseline="{dominant_baseline}" transform="rotate({deg_angle}, {x}, {y})">{text}</text>"#
+        r#"<text x="{x}" y="{y}" font-family="monospace" font-size="{font_size}" fill="{color}" text-anchor="{text_anchor}" dominant-baseline="{dominant_baseline}" transform="rotate({deg_angle}, {x}, {y})">{encoded_text}</text>"#
     )
 }
 

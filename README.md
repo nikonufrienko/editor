@@ -34,7 +34,7 @@ Key features:
 |D-type flip-flop|✅|Presence of reset ports and their polarity, presence of enable input|
 |Point|✅|-|
 |Input and Output|✅|-|
-|Comparator (<, <=, >, >=, ==)|🔄|Comparison operation type|
+|Comparator (<, <=, >, >=, ==)|✅|Comparison operation type|
 |Half Adder|🔄|-|
 |Full Adder|🔄|-|
 

@@ -41,7 +41,7 @@ impl Helpers {
             .collapsible(false)
             .open(&mut self.about_showed)
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::ScrollArea::both().show(ui, |ui| {
                     CommonMarkViewer::new()
                         .default_implicit_uri_scheme("bytes://")
                         .show(ui, &mut self.cache, locale_type.get_readme());

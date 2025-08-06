@@ -19,6 +19,7 @@ egui_commonmark = { version = "0.21.1" }
 web-time = "1.1.0"
 image = { version = "0.25.6", features = ["jpeg"] }
 include_dir = "0.7.4"
+html-escape = "0.2.13"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 smol = "2.0.2"

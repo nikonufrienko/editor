@@ -161,6 +161,18 @@ fn get_units_examples() -> Vec<ComponentLibEntry> {
     ]
 }
 
+fn get_arithmetic() -> Vec<ComponentLibEntry> {
+    vec![ComponentLibEntry {
+        name: "Comparator",
+        component: Component::Primitive(PrimitiveComponent {
+            typ: PrimitiveType::Comparator(crate::grid_db::ComparisonType::EQ),
+            pos: grid_pos(1, 1), // Default preview pos
+            rotation: crate::grid_db::Rotation::ROT0,
+        }),
+    }]
+}
+
+
 fn get_flip_flops() -> Vec<ComponentLibEntry> {
     vec![ComponentLibEntry {
         name: "DFF",
@@ -193,6 +205,7 @@ pub fn get_component_lib() -> Vec<Vec<ComponentLibEntry>> {
     vec![
         get_gates(),
         get_muxes(),
+        get_arithmetic(),
         get_io(),
         get_units_examples(),
         get_flip_flops(),
@@ -226,10 +239,11 @@ pub fn get_group_name(group_id: usize, locale: &Locale) -> &'static str {
     match group_id {
         0 => locale.logic_gates,
         1 => locale.muxes,
-        2 => locale.input_outputs,
-        3 => locale.custom_units,
-        4 => locale.flip_flops,
-        5 => locale.text_labels,
+        2 => locale.arithmetic_primitives,
+        3 => locale.input_outputs,
+        4 => locale.custom_units,
+        5 => locale.flip_flops,
+        6 => locale.text_labels,
         _ => "",
     }
 }

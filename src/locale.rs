@@ -17,6 +17,7 @@ pub struct Locale {
     pub input_outputs: &'static str,
     pub custom_units: &'static str,
     pub flip_flops: &'static str,
+    pub arithmetic_primitives: &'static str,
 
     // UI:
     pub file: &'static str,
@@ -36,6 +37,7 @@ pub struct Locale {
     pub text_labels: &'static str,
     pub cell_size: &'static str,
     pub preview: &'static str,
+    pub type_: &'static str,
 
     // Modal dialogs:
     pub illegal_cell_size: &'static str,
@@ -76,6 +78,7 @@ pub const RU_LOCALE: Locale = Locale {
     filter: "Фильтр:",
     common_components: "Общие",
     logic_gates: "Логические гейты",
+    arithmetic_primitives: "Арифметические примитивы",
     muxes: "Мультиплексоры",
     input_outputs: "Входы/выходы",
     custom_units: "Кастомизируемые блоки",
@@ -98,6 +101,7 @@ pub const RU_LOCALE: Locale = Locale {
     async_reset_inverted: "Асинхронный сброс инвертирован",
     enable_signal: "Имеет вход сигнала включения (enable)",
     preview: "Предпросмотр",
+    type_: "Тип",
 };
 
 pub const EN_LOCALE: Locale = Locale {
@@ -119,6 +123,7 @@ pub const EN_LOCALE: Locale = Locale {
     file_hovered_message: "Put it here",
     filter: "filter:",
     common_components: "Common",
+    arithmetic_primitives: "Arithmetic",
     logic_gates: "Logic gates",
     muxes: "Muxes",
     input_outputs: "I/O",
@@ -142,6 +147,7 @@ pub const EN_LOCALE: Locale = Locale {
     async_reset_inverted: "Asynchronous reset inverted",
     enable_signal: "Enable signal",
     preview: "Preview",
+    type_: "Type"
 };
 
 #[cfg(feature = "unifont")]
@@ -166,6 +172,7 @@ pub const ZH_LOCALE: Locale = Locale {
     common_components: "常用",
     logic_gates: "逻辑门",
     muxes: "多路复用器",
+    arithmetic_primitives: "算术原语",
     input_outputs: "输入/输出",
     custom_units: "自定义模块",
     flip_flops: "触发器",
@@ -187,6 +194,7 @@ pub const ZH_LOCALE: Locale = Locale {
     async_reset_inverted: "反向异步复位",
     enable_signal: "使能信号",
     preview: "预览",
+    type_: "类型"
 };
 
 pub fn get_system_default_locale() -> LocaleType {

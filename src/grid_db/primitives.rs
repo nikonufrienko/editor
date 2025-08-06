@@ -307,7 +307,7 @@ impl PrimitiveComponent {
 
         // Draw text labels:
         if state.lod_level() == LodLevel::Max {
-            for (pos, text, rotation) in self.typ.get_text_labels() {
+            for (pos, text, rotation, anchor) in self.typ.get_text_labels() {
                 show_text_with_debounce(
                     self.apply_rotation(pos * state.grid_size + screen_pos, state),
                     text,
@@ -315,7 +315,7 @@ impl PrimitiveComponent {
                     painter,
                     None,
                     rotation + self.rotation,
-                    Align2::LEFT_TOP,
+                    anchor,
                 );
             }
         }
@@ -336,8 +336,8 @@ impl PrimitiveComponent {
         let raw_lines = self.typ.get_lines(LodLevel::Max);
         for raw_line in raw_lines {
             let mut raw_line = raw_line;
-            self.apply_rotation_for_points(&mut raw_line, &SVG_DUMMY_STATE);
-            for p in &mut raw_line {
+            apply_rotation_for_raw_points(&mut raw_line, self.rotation, self.typ.get_dimension_raw());
+            for p in &mut *raw_line {
                 *p = (*p + raw_offset) * scale;
             }
             result.push_str(&(svg_line(&raw_line, stroke_color, stroke_w) + &"\n"));
@@ -374,7 +374,7 @@ impl PrimitiveComponent {
 
         // Text labels:
         let font_size = 0.5 * scale;
-        for (pos, text, rotation) in self.typ.get_text_labels() {
+        for (pos, text, rotation, anchor) in self.typ.get_text_labels() {
             result.push_str(
                 &(svg_single_line_text(
                     text,
@@ -382,7 +382,7 @@ impl PrimitiveComponent {
                     font_size,
                     rotation + self.rotation,
                     theme,
-                    Align2::LEFT_TOP,
+                    anchor,
                 ) + &"\n"),
             );
         }
@@ -401,7 +401,7 @@ pub struct DFFParams {
     pub sync_reset_inverted: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum DFFPort {
     D,
     Q,
@@ -453,6 +453,34 @@ impl DFFPort {
     }
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize, Hash, PartialEq, Eq)]
+pub enum ComparisonType {
+    /// Equal (==)
+    EQ,
+    /// Less than (<)
+    LT,
+    /// Less than or equal (<)
+    LTE,
+    /// Greater than (>)
+    GT,
+    /// Greater than or equal (>=)
+    GTE,
+}
+
+impl ComparisonType  {
+    const TYPES: &[ComparisonType] = &[Self::EQ, Self::LT, Self::LTE, Self::GT, Self::GTE];
+
+    fn to_str(self) -> &'static str {
+        match self {
+            ComparisonType::EQ => "==",
+            ComparisonType::LT => "<",
+            ComparisonType::LTE => "<=",
+            ComparisonType::GT => ">",
+            ComparisonType::GTE => ">=",
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum PrimitiveType {
     // Logic gates:
@@ -466,9 +494,12 @@ pub enum PrimitiveType {
     // Muxes:
     Mux(usize),
 
-    // Logic gates:
+    // I/O:
     Input,
     Output,
+
+    // Arithmetic:
+    Comparator(ComparisonType),
 
     // D-type flip-flop
     DFF(DFFParams),
@@ -1076,6 +1107,50 @@ impl PrimitiveType {
     }
 
     //
+    // *** Comparator ***
+    //
+    const CMP_DIMENSION: (i32, i32) = (3, 3);
+    const CMP_N_CONNECTIONS: usize = 3;
+
+    fn get_cmp_dock_cell_raw(
+        connection_id: Id,
+        primitive_pos: &GridPos,
+    ) -> GridPos {
+        *primitive_pos +
+        match connection_id {
+            0 => grid_pos(-1, 0),
+            1 => grid_pos(-1, 2),
+            2 => grid_pos(3, 1),
+            _ => panic!("Illegal connection id"),
+        }
+    }
+
+    fn get_cmp_connection_position_raw(connection_id: Id) -> Pos2 {
+        match connection_id {
+            0 => pos2(0.0, 0.5),
+            1 => pos2(0.0, 2.5),
+            2 => pos2(3.0, 1.5),
+            _ => panic!("Illegal connection id"),
+        }
+    }
+
+    fn get_cmp_polygons_points_raw(lod_level: LodLevel) -> Vec<Vec<Pos2>> {
+        vec![Self::get_circle_points(pos2(1.5, 1.5), 1.2, lod_level)]
+    }
+
+    fn get_cmp_lines_raw() -> Vec<Vec<Pos2>> {
+        vec![
+            vec![pos2(0.0, 0.5), pos2(0.85, 0.5)],
+            vec![pos2(0.0, 2.5), pos2(0.85, 2.5)],
+            vec![pos2(3.0, 1.5), pos2(2.7, 1.5)]
+        ]
+    }
+
+    fn get_cmp_text_labels(comparison_type: &ComparisonType) -> Vec<(Pos2, String, Rotation, Align2)> {
+        vec![(pos2(1.5, 1.5), comparison_type.to_str().to_owned(), Rotation::ROT0, Align2::CENTER_CENTER)]
+    }
+
+    //
     // *** DFF (D-type flip-flop) ***
     //
     const DFF_DIMENSION: (i32, i32) = (5, 5);
@@ -1091,14 +1166,14 @@ impl PrimitiveType {
         connection_id: Id,
         primitive_pos: &GridPos,
     ) -> GridPos {
-        match DFFPort::from_id(params, connection_id) {
-            Some(DFFPort::D) => grid_pos(0, 1) + *primitive_pos,
-            Some(DFFPort::Clk) => grid_pos(0, 3) + *primitive_pos,
-            Some(DFFPort::Q) => grid_pos(4, 2) + *primitive_pos,
-            Some(DFFPort::AsyncReset) => grid_pos(2, 0) + *primitive_pos,
-            Some(DFFPort::SyncReset) => grid_pos(0, 2) + *primitive_pos,
-            Some(DFFPort::Enable) => grid_pos(0, 4) + *primitive_pos,
-            _ => panic!("Wrong port"),
+        *primitive_pos + match DFFPort::from_id(params, connection_id) {
+            Some(DFFPort::D) => grid_pos(0, 1),
+            Some(DFFPort::Clk) => grid_pos(0, 3),
+            Some(DFFPort::Q) => grid_pos(4, 2),
+            Some(DFFPort::AsyncReset) => grid_pos(2, 0),
+            Some(DFFPort::SyncReset) => grid_pos(0, 2),
+            Some(DFFPort::Enable) => grid_pos(0, 4),
+            _ => panic!("Illegal connection id"),
         }
     }
 
@@ -1131,19 +1206,19 @@ impl PrimitiveType {
             Some(DFFPort::AsyncReset) => pos2(2.5, 0.5),
             Some(DFFPort::SyncReset) => pos2(0.5, 2.5),
             Some(DFFPort::Enable) => pos2(0.5, 4.5),
-            _ => panic!("Wrong port"),
+            _ => panic!("Illegal connection id"),
         }
     }
 
-    fn get_dff_text_fields(params: &DFFParams) -> Vec<(Pos2, String, Rotation)> {
+    fn get_dff_text_labels(params: &DFFParams) -> Vec<(Pos2, String, Rotation, Align2)> {
         let n_connections = Self::get_dff_connections_number(params);
-        let mut result: Vec<(Pos2, String, Rotation)> = Vec::with_capacity(n_connections - 1);
+        let mut result: Vec<(Pos2, String, Rotation, Align2)> = Vec::with_capacity(n_connections - 1);
         result.extend([
-            (pos2(1.25, 1.25), "D".into(), Rotation::ROT0),
-            (pos2(3.45, 2.25), "Q".into(), Rotation::ROT0),
+            (pos2(1.25, 1.25), "D".into(), Rotation::ROT0, Align2::LEFT_TOP),
+            (pos2(3.45, 2.25), "Q".into(), Rotation::ROT0, Align2::LEFT_TOP),
         ]);
         if params.has_enable {
-            result.push((pos2(1.25, 4.25), "EN".into(), Rotation::ROT0));
+            result.push((pos2(1.25, 4.25), "EN".into(), Rotation::ROT0, Align2::LEFT_TOP));
         }
         if params.has_async_reset {
             result.push((
@@ -1155,13 +1230,14 @@ impl PrimitiveType {
                         ""
                     },
                 Rotation::ROT0,
+                Align2::LEFT_TOP
             ));
         }
         if params.has_sync_reset {
             result.push((
                 pos2(1.25, 2.25),
                 "RST".to_string() + if params.sync_reset_inverted { "_N" } else { "" },
-                Rotation::ROT0,
+                Rotation::ROT0, Align2::LEFT_TOP
             ));
         }
         result
@@ -1197,9 +1273,10 @@ impl PrimitiveType {
             Self::Or(n_inputs) => *n_inputs + 1,
             Self::Xor(n_inputs) => *n_inputs + 1,
             Self::Nand(n_inputs) => *n_inputs + 1,
-            Self::Mux(n_inputs) => *n_inputs + 2,
-            Self::DFF(params) => Self::get_dff_connections_number(params),
             Self::Not => 2,
+            Self::Mux(n_inputs) => *n_inputs + 2,
+            Self::Comparator(_) => Self::CMP_N_CONNECTIONS,
+            Self::DFF(params) => Self::get_dff_connections_number(params),
             Self::Input => 1,
             Self::Output => 1,
             Self::Point => 1,
@@ -1214,6 +1291,7 @@ impl PrimitiveType {
             Self::Nand(n_inputs) => Self::get_nand_gate_dimension_raw(*n_inputs),
             Self::Not => (3, 3),
             Self::Mux(n_inputs) => Self::get_mux_dimension_raw(*n_inputs),
+            Self::Comparator(_) => Self::CMP_DIMENSION,
             Self::DFF(_) => Self::DFF_DIMENSION,
             Self::Input => (2, 1),
             Self::Output => (2, 1),
@@ -1235,10 +1313,11 @@ impl PrimitiveType {
             Self::Nand(n_inputs) => {
                 Self::get_nand_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
             }
+            Self::Not => Self::get_not_dock_cell_raw(connection_id, primitive_pos),
             Self::Mux(n_inputs) => {
                 Self::get_mux_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
             }
-            Self::Not => Self::get_not_dock_cell_raw(connection_id, primitive_pos),
+            Self::Comparator(_) => Self::get_cmp_dock_cell_raw(connection_id, primitive_pos),
             Self::DFF(params) => Self::get_dff_dock_cell_raw(params, connection_id, primitive_pos),
             Self::Input => Self::get_input_dock_cell_raw(primitive_pos),
             Self::Output => Self::get_output_dock_cell_raw(primitive_pos),
@@ -1262,6 +1341,7 @@ impl PrimitiveType {
             }
             Self::Not => Self::get_not_connection_position_raw(connection_id),
             Self::Mux(n_inputs) => Self::get_mux_connection_position_raw(connection_id, *n_inputs),
+            Self::Comparator(_) => Self::get_cmp_connection_position_raw(connection_id),
             Self::DFF(params) => Self::get_dff_connection_position_raw(params, connection_id),
             Self::Input => Self::get_input_connection_position_raw(connection_id),
             Self::Output => Self::get_output_connection_position_raw(connection_id),
@@ -1282,6 +1362,7 @@ impl PrimitiveType {
             Self::Input => vec![Self::get_input_polygon_points_raw()],
             Self::Output => vec![Self::get_output_polygon_points_raw()],
             Self::Not => Self::get_not_polygons_points_raw(lod_level),
+            Self::Comparator(_) => Self::get_cmp_polygons_points_raw(lod_level),
             Self::Mux(n_inputs) => vec![Self::get_mux_polygon_points_raw(*n_inputs)],
             Self::DFF(params) => Self::get_dff_polygons_points_raw(params, lod_level),
             Self::Point => vec![],
@@ -1296,13 +1377,15 @@ impl PrimitiveType {
             Self::Output => Self::get_output_lines_raw(),
             Self::Not => Self::get_not_lines_raw(),
             Self::DFF(params) => Self::get_dff_lines_raw(params),
+            Self::Comparator(_) => Self::get_cmp_lines_raw(),
             _ => vec![],
         }
     }
 
-    fn get_text_labels(&self) -> Vec<(Pos2, String, Rotation)> {
+    fn get_text_labels(&self) -> Vec<(Pos2, String, Rotation, Align2)> {
         match self {
-            Self::DFF(params) => Self::get_dff_text_fields(params),
+            Self::DFF(params) => Self::get_dff_text_labels(params),
+            Self::Comparator(typ) => Self::get_cmp_text_labels(typ),
             _ => vec![],
         }
     }
@@ -1314,8 +1397,8 @@ impl PrimitiveType {
             | Self::Xor(_)
             | Self::Nand(_)
             | Self::Mux(_)
-            | Self::DFF(_) => true,
-
+            | Self::DFF(_)
+            | Self::Comparator(_) => true,
             Self::Not | Self::Input | Self::Output | Self::Point => false,
         }
     }
@@ -1327,11 +1410,7 @@ impl PrimitiveType {
             | Self::Or(_)
             | Self::Xor(_)
             | Self::Nand(_)
-            | Self::Mux(_)
-            | Self::Not
-            | Self::Input
-            | Self::Output
-            | Self::Point => {
+            | Self::Mux(_) => {
                 let mut result = HashMap::new();
                 let n0 = self.get_connections_number();
                 let n1 = other.get_connections_number();
@@ -1368,6 +1447,11 @@ impl PrimitiveType {
                     panic!("Illegal type")
                 }
             },
+            | Self::Not
+            | Self::Input
+            | Self::Output
+            | Self::Point
+            | Self::Comparator(_) => HashMap::new()
         }
     }
 
@@ -1420,6 +1504,16 @@ impl PrimitiveType {
                     );
                 }
                 ui.checkbox(&mut params.has_enable, locale.enable_signal);
+            }
+            Self::Comparator(curr_typ) => {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{}:", locale.type_));
+                    ui.menu_button(curr_typ.to_str(), |ui: &mut egui::Ui| {
+                        for typ in ComparisonType::TYPES {
+                            ui.selectable_value(curr_typ, *typ, typ.to_str());
+                        }
+                    });
+                });
             }
             _ => {}
         }
