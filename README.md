@@ -2,6 +2,8 @@
 
 [Web Demo](https://nikonufrienko.github.io/editor/)
 
+*Use Ctrl+F5 to force refresh the page to the latest version*
+
 Dark theme:
 
 ![](assets/common/example_dark.jpg)
@@ -20,7 +22,7 @@ Key features:
 |Type|Available Actions|
 |-|-|
 |Primitives|Rotation, customization (modifying various parameters)|
-|Custom Units|Adding, renaming, and deleting ports|
+|Custom Blocks|Adding, renaming, and deleting ports|
 |Text Fields|Editing|
 
 ## Supported Primitives:
@@ -35,8 +37,7 @@ Key features:
 |Point|✅|-|
 |Input and Output|✅|-|
 |Comparator (<, <=, >, >=, ==)|✅|Comparison operation type|
-|Half Adder|🔄|-|
-|Full Adder|🔄|-|
+|Adder|✅|Presence of carry-in, carry-out|
 
 ## Supported Platforms:
 

@@ -162,16 +162,28 @@ fn get_units_examples() -> Vec<ComponentLibEntry> {
 }
 
 fn get_arithmetic() -> Vec<ComponentLibEntry> {
-    vec![ComponentLibEntry {
-        name: "Comparator",
-        component: Component::Primitive(PrimitiveComponent {
-            typ: PrimitiveType::Comparator(crate::grid_db::ComparisonType::EQ),
-            pos: grid_pos(1, 1), // Default preview pos
-            rotation: crate::grid_db::Rotation::ROT0,
-        }),
-    }]
+    vec![
+        ComponentLibEntry {
+            name: "Comparator",
+            component: Component::Primitive(PrimitiveComponent {
+                typ: PrimitiveType::Comparator(crate::grid_db::ComparisonType::EQ),
+                pos: grid_pos(1, 1), // Default preview pos
+                rotation: crate::grid_db::Rotation::ROT0,
+            }),
+        },
+        ComponentLibEntry {
+            name: "Adder",
+            component: Component::Primitive(PrimitiveComponent {
+                typ: PrimitiveType::Adder {
+                    cin: true,
+                    cout: true,
+                },
+                pos: grid_pos(1, 1), // Default preview pos
+                rotation: crate::grid_db::Rotation::ROT0,
+            }),
+        },
+    ]
 }
-
 
 fn get_flip_flops() -> Vec<ComponentLibEntry> {
     vec![ComponentLibEntry {

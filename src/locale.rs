@@ -147,7 +147,7 @@ pub const EN_LOCALE: Locale = Locale {
     async_reset_inverted: "Asynchronous reset inverted",
     enable_signal: "Enable signal",
     preview: "Preview",
-    type_: "Type"
+    type_: "Type",
 };
 
 #[cfg(feature = "unifont")]
@@ -194,7 +194,7 @@ pub const ZH_LOCALE: Locale = Locale {
     async_reset_inverted: "反向异步复位",
     enable_signal: "使能信号",
     preview: "预览",
-    type_: "类型"
+    type_: "类型",
 };
 
 pub fn get_system_default_locale() -> LocaleType {

@@ -243,7 +243,7 @@ impl PrimitiveComponent {
         if connection_id >= self.typ.get_connections_number() {
             return None;
         }
-        Some(self.apply_rotation_grid_pos(self.typ.get_dock_cell_raw(connection_id, &self.pos)))
+        Some(self.apply_rotation_grid_pos(self.typ.get_dock_cell_raw(connection_id) + self.pos))
     }
 
     pub fn get_connection_position(&self, connection_id: Id, state: &FieldState) -> Option<Pos2> {
@@ -336,7 +336,11 @@ impl PrimitiveComponent {
         let raw_lines = self.typ.get_lines(LodLevel::Max);
         for raw_line in raw_lines {
             let mut raw_line = raw_line;
-            apply_rotation_for_raw_points(&mut raw_line, self.rotation, self.typ.get_dimension_raw());
+            apply_rotation_for_raw_points(
+                &mut raw_line,
+                self.rotation,
+                self.typ.get_dimension_raw(),
+            );
             for p in &mut *raw_line {
                 *p = (*p + raw_offset) * scale;
             }
@@ -402,7 +406,19 @@ pub struct DFFParams {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum DFFPort {
+enum PPort {
+    // Common ports:
+    Input(usize),
+    Output(usize),
+
+    // Mux:
+    Select,
+
+    // Adder ports:
+    Cin,
+    Cout,
+
+    // DFF ports:
     D,
     Q,
     AsyncReset,
@@ -411,27 +427,31 @@ enum DFFPort {
     Clk,
 }
 
-impl DFFPort {
-    /// Returns the additional ports (beyond D, CLK, Q) based on parameters
-    fn additional_ports(params: &DFFParams) -> &'static [Self; 3] {
+impl PPort {
+    /// Returns the additional ports of dff (beyond D, CLK, Q) based on parameters
+    fn dff_additional_ports(params: &DFFParams) -> &'static [Option<Self>; 3] {
         // Pre-define all possible combinations for quick lookup
-        static PORT_COMBINATIONS: [[DFFPort; 3]; 8] = [
+        static PORT_COMBINATIONS: [[Option<PPort>; 3]; 8] = [
             // 0: no additional ports
-            [DFFPort::Clk, DFFPort::Clk, DFFPort::Clk], // None placeholder
+            [None, None, None], // None placeholder
             // 1: sync reset only
-            [DFFPort::SyncReset, DFFPort::Clk, DFFPort::Clk],
+            [Some(PPort::SyncReset), None, None],
             // 2: async reset only
-            [DFFPort::AsyncReset, DFFPort::Clk, DFFPort::Clk],
+            [Some(PPort::AsyncReset), None, None],
             // 3: sync + async reset
-            [DFFPort::SyncReset, DFFPort::AsyncReset, DFFPort::Clk],
+            [Some(PPort::SyncReset), Some(PPort::AsyncReset), None],
             // 4: enable only
-            [DFFPort::Enable, DFFPort::Clk, DFFPort::Clk],
+            [Some(PPort::Enable), None, None],
             // 5: sync reset + enable
-            [DFFPort::SyncReset, DFFPort::Enable, DFFPort::Clk],
+            [Some(PPort::SyncReset), Some(PPort::Enable), None],
             // 6: async reset + enable
-            [DFFPort::AsyncReset, DFFPort::Enable, DFFPort::Clk],
+            [Some(PPort::AsyncReset), Some(PPort::Enable), None],
             // 7: all additional ports
-            [DFFPort::SyncReset, DFFPort::AsyncReset, DFFPort::Enable],
+            [
+                Some(PPort::SyncReset),
+                Some(PPort::AsyncReset),
+                Some(PPort::Enable),
+            ],
         ];
 
         let index = (params.has_enable as usize) << 2
@@ -442,13 +462,85 @@ impl DFFPort {
     }
 
     /// Converts a connection ID to a port type
-    fn from_id(params: &DFFParams, id: usize) -> Option<Self> {
-        match id {
-            0 => Some(Self::Clk),
-            1 => Some(Self::D),
-            2 => Some(Self::Q),
-            3..=5 => Self::additional_ports(params).get(id - 3).copied(),
-            _ => None,
+    fn from_id(typ: &PrimitiveType, id: usize) -> Option<Self> {
+        match typ {
+            PrimitiveType::And(n_inputs)
+            | PrimitiveType::Or(n_inputs)
+            | PrimitiveType::Xor(n_inputs)
+            | PrimitiveType::Nand(n_inputs) => match id {
+                0 => Some(Self::Output(0)),
+                _ => {
+                    if id <= *n_inputs {
+                        Some(Self::Input(id - 1))
+                    } else {
+                        None
+                    }
+                }
+            },
+
+            PrimitiveType::Mux(n_inputs) => match id {
+                0 => Some(Self::Output(0)),
+                1 => Some(Self::Select),
+                _ => {
+                    if id <= *n_inputs + 1 {
+                        Some(Self::Input(id - 2))
+                    } else {
+                        None
+                    }
+                }
+            },
+            PrimitiveType::DFF(params) => match id {
+                0 => Some(Self::Clk),
+                1 => Some(Self::D),
+                2 => Some(Self::Q),
+                3..=5 => *Self::dff_additional_ports(params).get(id - 3)?,
+                _ => None,
+            },
+            PrimitiveType::Not => match id {
+                0 => Some(Self::Input(0)),
+                1 => Some(Self::Output(0)),
+                _ => None,
+            },
+            PrimitiveType::Point => match id {
+                0 => Some(Self::Output(0)),
+                _ => None,
+            },
+            PrimitiveType::Input => match id {
+                0 => Some(Self::Output(0)),
+                _ => None,
+            },
+            PrimitiveType::Output => match id {
+                0 => Some(Self::Input(0)),
+                _ => None,
+            },
+            PrimitiveType::Comparator(_) => match id {
+                0 => Some(Self::Input(0)),
+                1 => Some(Self::Input(1)),
+                2 => Some(Self::Output(0)),
+                _ => None,
+            },
+            PrimitiveType::Adder { cin, cout } => match id {
+                0 => Some(Self::Input(0)),
+                1 => Some(Self::Input(1)),
+                2 => Some(Self::Output(0)),
+                3 => {
+                    if *cin {
+                        Some(Self::Cin)
+                    } else if *cout {
+                        Some(Self::Cout)
+                    } else {
+                        None
+                    }
+                }
+                4 => {
+                    if *cin && *cout {
+                        Some(Self::Cout)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
         }
     }
 }
@@ -467,7 +559,7 @@ pub enum ComparisonType {
     GTE,
 }
 
-impl ComparisonType  {
+impl ComparisonType {
     const TYPES: &[ComparisonType] = &[Self::EQ, Self::LT, Self::LTE, Self::GT, Self::GTE];
 
     fn to_str(self) -> &'static str {
@@ -500,8 +592,9 @@ pub enum PrimitiveType {
 
     // Arithmetic:
     Comparator(ComparisonType),
+    Adder { cin: bool, cout: bool },
 
-    // D-type flip-flop
+    // D-type flip-flop:
     DFF(DFFParams),
 }
 
@@ -517,35 +610,37 @@ impl PrimitiveType {
         }
     }
 
-    fn get_and_gate_dock_cell_raw(
-        connection_id: Id,
-        n_inputs: usize,
-        primitive_pos: &GridPos,
-    ) -> GridPos {
-        if connection_id == 0 {
-            // Output:
-            let raw_dim = Self::get_and_gate_dimension_raw(n_inputs);
-            *primitive_pos + grid_pos(raw_dim.0, raw_dim.1 / 2)
-        } else {
-            // Inputs:
-            if n_inputs % 2 == 0 {
-                *primitive_pos + grid_pos(-1, 2 * (connection_id - 1) as i32)
-            } else {
-                *primitive_pos + grid_pos(-1, (connection_id - 1) as i32)
+    fn get_and_gate_dock_cell_raw(port: PPort, n_inputs: usize) -> GridPos {
+        match port {
+            PPort::Output(0) => {
+                let raw_dim = Self::get_and_gate_dimension_raw(n_inputs);
+                grid_pos(raw_dim.0, raw_dim.1 / 2)
             }
+            PPort::Input(inp_id) => {
+                if n_inputs % 2 == 0 {
+                    grid_pos(-1, 2 * inp_id as i32)
+                } else {
+                    grid_pos(-1, inp_id as i32)
+                }
+            }
+            _ => panic!("Unexpected port"),
         }
     }
 
-    fn get_and_gate_connection_position_raw(connection_id: Id, n_inputs: usize) -> Pos2 {
-        let (w, h) = Self::get_and_gate_dimension_raw(n_inputs);
-        if connection_id == 0 {
-            pos2(w as f32, h as f32 / 2.0)
-        } else {
-            if n_inputs % 2 == 0 {
-                pos2(0.0, (2 * (connection_id - 1)) as f32 + 0.5)
-            } else {
-                pos2(0.0, (connection_id - 1) as f32 + 0.5)
+    fn get_and_gate_connection_position_raw(port: PPort, n_inputs: usize) -> Pos2 {
+        match port {
+            PPort::Output(0) => {
+                let (w, h) = Self::get_and_gate_dimension_raw(n_inputs);
+                pos2(w as f32, h as f32 / 2.0)
             }
+            PPort::Input(inp_id) => {
+                if n_inputs % 2 == 0 {
+                    pos2(0.0, (2 * inp_id) as f32 + 0.5)
+                } else {
+                    pos2(0.0, inp_id as f32 + 0.5)
+                }
+            }
+            _ => panic!("Unexpected port"),
         }
     }
 
@@ -596,16 +691,12 @@ impl PrimitiveType {
         return Self::get_and_gate_dimension_raw(n_inputs);
     }
 
-    fn get_or_gate_dock_cell_raw(
-        connection_id: Id,
-        n_inputs: usize,
-        primitive_pos: &GridPos,
-    ) -> GridPos {
-        Self::get_and_gate_dock_cell_raw(connection_id, n_inputs, primitive_pos)
+    fn get_or_gate_dock_cell_raw(port: PPort, n_inputs: usize) -> GridPos {
+        Self::get_and_gate_dock_cell_raw(port, n_inputs)
     }
 
-    fn get_or_gate_connection_position_raw(connection_id: Id, n_inputs: usize) -> Pos2 {
-        Self::get_and_gate_connection_position_raw(connection_id, n_inputs)
+    fn get_or_gate_connection_position_raw(port: PPort, n_inputs: usize) -> Pos2 {
+        Self::get_and_gate_connection_position_raw(port, n_inputs)
     }
 
     fn get_or_left_curve(
@@ -751,7 +842,7 @@ impl PrimitiveType {
         let y_range = max_y - min_y;
 
         for i in 0..n_inputs {
-            let p0 = Self::get_or_gate_connection_position_raw(i + 1, n_inputs);
+            let p0 = Self::get_or_gate_connection_position_raw(PPort::Input(i), n_inputs);
             let y = p0.y;
 
             let t = if y_range.abs() < f32::EPSILON {
@@ -777,16 +868,12 @@ impl PrimitiveType {
         return Self::get_and_gate_dimension_raw(n_inputs);
     }
 
-    fn get_xor_gate_dock_cell_raw(
-        connection_id: Id,
-        n_inputs: usize,
-        primitive_pos: &GridPos,
-    ) -> GridPos {
-        Self::get_and_gate_dock_cell_raw(connection_id, n_inputs, primitive_pos)
+    fn get_xor_gate_dock_cell_raw(port: PPort, n_inputs: usize) -> GridPos {
+        Self::get_and_gate_dock_cell_raw(port, n_inputs)
     }
 
-    fn get_xor_gate_connection_position_raw(connection_id: Id, n_inputs: usize) -> Pos2 {
-        Self::get_and_gate_connection_position_raw(connection_id, n_inputs)
+    fn get_xor_gate_connection_position_raw(port: PPort, n_inputs: usize) -> Pos2 {
+        Self::get_and_gate_connection_position_raw(port, n_inputs)
     }
 
     fn get_xor_gate_polygon_points_raw(n_inputs: usize, lod_level: LodLevel) -> Vec<Pos2> {
@@ -880,16 +967,12 @@ impl PrimitiveType {
         Self::get_and_gate_dimension_raw(n_inputs)
     }
 
-    fn get_nand_gate_dock_cell_raw(
-        connection_id: Id,
-        n_inputs: usize,
-        primitive_pos: &GridPos,
-    ) -> GridPos {
-        Self::get_and_gate_dock_cell_raw(connection_id, n_inputs, primitive_pos)
+    fn get_nand_gate_dock_cell_raw(port: PPort, n_inputs: usize) -> GridPos {
+        Self::get_and_gate_dock_cell_raw(port, n_inputs)
     }
 
-    fn get_nand_gate_connection_position_raw(connection_id: Id, n_inputs: usize) -> Pos2 {
-        Self::get_and_gate_connection_position_raw(connection_id, n_inputs)
+    fn get_nand_gate_connection_position_raw(port: PPort, n_inputs: usize) -> Pos2 {
+        Self::get_and_gate_connection_position_raw(port, n_inputs)
     }
 
     fn get_circle_points(center: Pos2, radius: f32, lod_level: LodLevel) -> Vec<Pos2> {
@@ -951,52 +1034,55 @@ impl PrimitiveType {
         return (w, h);
     }
 
-    fn get_mux_dock_cell_raw(
-        connection_id: Id,
-        n_inputs: usize,
-        primitive_pos: &GridPos,
-    ) -> GridPos {
-        if connection_id == 0 {
-            // Output:
-            let (w, h) = Self::get_mux_dimension_raw(n_inputs);
-            *primitive_pos + grid_pos(w, h / 2)
-        } else if connection_id == 1 {
-            // Selector:
-            let (w, h) = Self::get_mux_dimension_raw(n_inputs);
-            if w == 1 {
-                *primitive_pos + grid_pos(0, h)
-            } else {
-                *primitive_pos + grid_pos(1, h)
+    fn get_mux_dock_cell_raw(port: PPort, n_inputs: usize) -> GridPos {
+        match port {
+            PPort::Output(0) => {
+                let (w, h) = Self::get_mux_dimension_raw(n_inputs);
+                grid_pos(w, h / 2)
             }
-        } else {
-            // Inputs:
-            if n_inputs % 2 == 0 {
-                *primitive_pos + grid_pos(-1, 2 * (connection_id - 2) as i32)
-            } else {
-                *primitive_pos + grid_pos(-1, (connection_id - 2) as i32)
+            PPort::Select => {
+                let (w, h) = Self::get_mux_dimension_raw(n_inputs);
+                if w == 1 {
+                    grid_pos(0, h)
+                } else {
+                    grid_pos(1, h)
+                }
             }
+            PPort::Input(inp_id) => {
+                if n_inputs % 2 == 0 {
+                    grid_pos(-1, 2 * inp_id as i32)
+                } else {
+                    grid_pos(-1, inp_id as i32)
+                }
+            }
+            _ => panic!("Unexpected port"),
         }
     }
 
-    fn get_mux_connection_position_raw(connection_id: Id, n_inputs: usize) -> Pos2 {
-        let (w, h) = Self::get_mux_dimension_raw(n_inputs);
-        if connection_id == 0 {
-            // Output:
-            pos2(w as f32, h as f32 / 2.0)
-        } else if connection_id == 1 {
-            // Selector:
-            if w == 1 {
-                pos2(0.5, h as f32 - 0.25)
-            } else {
-                pos2(1.5, h as f32 - 0.75)
+    fn get_mux_connection_position_raw(port: PPort, n_inputs: usize) -> Pos2 {
+        match port {
+            PPort::Output(0) => {
+                // Output:
+                let (w, h) = Self::get_mux_dimension_raw(n_inputs);
+                pos2(w as f32, h as f32 / 2.0)
             }
-        } else {
-            // Inputs:
-            if n_inputs % 2 == 0 {
-                pos2(0.0, (2 * (connection_id - 2)) as f32 + 0.5)
-            } else {
-                pos2(0.0, (connection_id - 2) as f32 + 0.5)
+            PPort::Select => {
+                let (w, h) = Self::get_mux_dimension_raw(n_inputs);
+                if w == 1 {
+                    pos2(0.5, h as f32 - 0.25)
+                } else {
+                    pos2(1.5, h as f32 - 0.75)
+                }
             }
+            PPort::Input(inp_id) => {
+                // Inputs:
+                if n_inputs % 2 == 0 {
+                    pos2(0.0, (2 * inp_id) as f32 + 0.5)
+                } else {
+                    pos2(0.0, inp_id as f32 + 0.5)
+                }
+            }
+            _ => panic!("Unexpected port"),
         }
     }
 
@@ -1017,8 +1103,8 @@ impl PrimitiveType {
     //
     // *** Input ***
     //
-    fn get_input_dock_cell_raw(primitive_pos: &GridPos) -> GridPos {
-        return *primitive_pos + grid_pos(2, 0);
+    fn get_input_dock_cell_raw() -> GridPos {
+        grid_pos(2, 0)
     }
 
     fn get_input_polygon_points_raw() -> Vec<Pos2> {
@@ -1036,22 +1122,22 @@ impl PrimitiveType {
         return vec![p0, p1, p2, p3, p4, p5];
     }
 
-    fn get_input_connection_position_raw(_connection_id: Id) -> Pos2 {
+    fn get_input_connection_position_raw(_port: PPort) -> Pos2 {
         pos2(2.0, 0.5)
     }
 
     //
     // *** Output ***
     //
-    fn get_output_dock_cell_raw(primitive_pos: &GridPos) -> GridPos {
-        return *primitive_pos + grid_pos(-1, 0);
+    fn get_output_dock_cell_raw() -> GridPos {
+        grid_pos(-1, 0)
     }
 
     fn get_output_polygon_points_raw() -> Vec<Pos2> {
         Self::get_input_polygon_points_raw()
     }
 
-    fn get_output_connection_position_raw(_connection_id: Id) -> Pos2 {
+    fn get_output_connection_position_raw(_port: PPort) -> Pos2 {
         pos2(0.0, 0.5)
     }
 
@@ -1062,11 +1148,11 @@ impl PrimitiveType {
     //
     // *** Not ***
     //
-    fn get_not_dock_cell_raw(connection_id: Id, primitive_pos: &GridPos) -> GridPos {
-        if connection_id == 0 {
-            *primitive_pos + grid_pos(-1, 1)
-        } else {
-            *primitive_pos + grid_pos(3, 1)
+    fn get_not_dock_cell_raw(port: PPort) -> GridPos {
+        match port {
+            PPort::Input(0) => grid_pos(-1, 1),
+            PPort::Output(0) => grid_pos(3, 1),
+            _ => panic!("Unexpected port"),
         }
     }
 
@@ -1088,8 +1174,12 @@ impl PrimitiveType {
         ];
     }
 
-    fn get_not_connection_position_raw(connection_id: Id) -> Pos2 {
-        pos2(if connection_id == 0 { 0.0 } else { 3.0 }, 1.5)
+    fn get_not_connection_position_raw(port: PPort) -> Pos2 {
+        match port {
+            PPort::Input(0) => pos2(0.0, 1.5),
+            PPort::Output(0) => pos2(3.0, 1.5),
+            _ => panic!("Unexpected port"),
+        }
     }
 
     fn get_not_lines_raw() -> Vec<Vec<Pos2>> {
@@ -1112,25 +1202,21 @@ impl PrimitiveType {
     const CMP_DIMENSION: (i32, i32) = (3, 3);
     const CMP_N_CONNECTIONS: usize = 3;
 
-    fn get_cmp_dock_cell_raw(
-        connection_id: Id,
-        primitive_pos: &GridPos,
-    ) -> GridPos {
-        *primitive_pos +
-        match connection_id {
-            0 => grid_pos(-1, 0),
-            1 => grid_pos(-1, 2),
-            2 => grid_pos(3, 1),
-            _ => panic!("Illegal connection id"),
+    fn get_cmp_dock_cell_raw(port: PPort) -> GridPos {
+        match port {
+            PPort::Input(0) => grid_pos(-1, 0),
+            PPort::Input(1) => grid_pos(-1, 2),
+            PPort::Output(0) => grid_pos(3, 1),
+            _ => panic!("Unexpected port"),
         }
     }
 
-    fn get_cmp_connection_position_raw(connection_id: Id) -> Pos2 {
-        match connection_id {
-            0 => pos2(0.0, 0.5),
-            1 => pos2(0.0, 2.5),
-            2 => pos2(3.0, 1.5),
-            _ => panic!("Illegal connection id"),
+    fn get_cmp_connection_position_raw(port: PPort) -> Pos2 {
+        match port {
+            PPort::Input(0) => pos2(0.0, 0.5),
+            PPort::Input(1) => pos2(0.0, 2.5),
+            PPort::Output(0) => pos2(3.0, 1.5),
+            _ => panic!("Unexpected port"),
         }
     }
 
@@ -1142,12 +1228,114 @@ impl PrimitiveType {
         vec![
             vec![pos2(0.0, 0.5), pos2(0.85, 0.5)],
             vec![pos2(0.0, 2.5), pos2(0.85, 2.5)],
-            vec![pos2(3.0, 1.5), pos2(2.7, 1.5)]
+            vec![pos2(3.0, 1.5), pos2(2.7, 1.5)],
         ]
     }
 
-    fn get_cmp_text_labels(comparison_type: &ComparisonType) -> Vec<(Pos2, String, Rotation, Align2)> {
-        vec![(pos2(1.5, 1.5), comparison_type.to_str().to_owned(), Rotation::ROT0, Align2::CENTER_CENTER)]
+    fn get_cmp_text_labels(
+        comparison_type: &ComparisonType,
+    ) -> Vec<(Pos2, String, Rotation, Align2)> {
+        vec![(
+            pos2(1.5, 1.5),
+            comparison_type.to_str().to_owned(),
+            Rotation::ROT0,
+            Align2::CENTER_CENTER,
+        )]
+    }
+
+    //
+    // *** Adder ***
+    //
+    fn get_adder_dimension_raw(cin: bool, _cout: bool) -> (i32, i32) {
+        if cin { (3, 4) } else { (3, 3) }
+    }
+
+    fn get_adder_connections_number(cin: bool, cout: bool) -> usize {
+        return 3 + if cin { 1 } else { 0 } + if cout { 1 } else { 0 };
+    }
+
+    fn get_adder_dock_cell_raw(port: PPort, cin: bool) -> GridPos {
+        let y_offs = if cin { 1 } else { 0 };
+
+        match port {
+            PPort::Input(0) => grid_pos(-1, 0 + y_offs),
+            PPort::Input(1) => grid_pos(-1, 2 + y_offs),
+            PPort::Output(0) => grid_pos(3, 1 + y_offs),
+            PPort::Cin => grid_pos(-1, 0),
+            PPort::Cout => grid_pos(3, 2 + y_offs),
+            _ => panic!("Unexpected port"),
+        }
+    }
+
+    fn get_adder_connection_position_raw(port: PPort, cin: bool) -> Pos2 {
+        let y_offs = if cin { 1.0 } else { 0.0 };
+
+        match port {
+            PPort::Input(0) => pos2(0.0, 0.5 + y_offs),
+            PPort::Input(1) => pos2(0.0, 2.5 + y_offs),
+            PPort::Output(0) => pos2(3.0, 1.5 + y_offs),
+            PPort::Cin => pos2(0.0, 0.5),
+            PPort::Cout => pos2(3.0, 2.5 + y_offs),
+            _ => panic!("Unexpected port"),
+        }
+    }
+
+    fn get_adder_polygons_points_raw(lod_level: LodLevel, cin: bool) -> Vec<Vec<Pos2>> {
+        let y_offs = if cin { 1.0 } else { 0.0 };
+
+        vec![Self::get_circle_points(
+            pos2(1.5, 1.5 + y_offs),
+            1.2,
+            lod_level,
+        )]
+    }
+
+    fn get_adder_lines_raw(cin: bool, cout: bool) -> Vec<Vec<Pos2>> {
+        let y_offs = if cin { 1.0 } else { 0.0 };
+        let mut result = vec![
+            vec![pos2(0.0, 0.5 + y_offs), pos2(0.85, 0.5 + y_offs)],
+            vec![pos2(0.0, 2.5 + y_offs), pos2(0.85, 2.5 + y_offs)],
+            vec![pos2(3.0, 1.5 + y_offs), pos2(2.7, 1.5 + y_offs)],
+        ];
+        if cin {
+            result.push(vec![pos2(0.0, 0.5), pos2(0.5, 0.5), pos2(1.3, 1.3)]);
+        }
+        if cout {
+            result.push(vec![
+                pos2(2.5, 2.0 + y_offs),
+                pos2(2.75, 2.5 + y_offs),
+                pos2(3.0, 2.5 + y_offs),
+            ]);
+        }
+        result
+    }
+
+    fn get_adder_text_labels(cin: bool, cout: bool) -> Vec<(Pos2, String, Rotation, Align2)> {
+        let y_offs = if cin { 1.0 } else { 0.0 };
+
+        let mut result = vec![(
+            pos2(1.5, 1.5 + y_offs),
+            "+".to_owned(),
+            Rotation::ROT0,
+            Align2::CENTER_CENTER,
+        )];
+        if cin {
+            result.push((
+                pos2(0.0, -0.15),
+                "cin".to_owned(),
+                Rotation::ROT0,
+                Align2::LEFT_TOP,
+            ));
+        }
+        if cout {
+            result.push((
+                pos2(3.0, 2.5 + y_offs),
+                "cout".to_owned(),
+                Rotation::ROT0,
+                Align2::RIGHT_TOP,
+            ));
+        }
+        result
     }
 
     //
@@ -1161,19 +1349,15 @@ impl PrimitiveType {
             + if params.has_enable { 1 } else { 0 }
     }
 
-    fn get_dff_dock_cell_raw(
-        params: &DFFParams,
-        connection_id: Id,
-        primitive_pos: &GridPos,
-    ) -> GridPos {
-        *primitive_pos + match DFFPort::from_id(params, connection_id) {
-            Some(DFFPort::D) => grid_pos(0, 1),
-            Some(DFFPort::Clk) => grid_pos(0, 3),
-            Some(DFFPort::Q) => grid_pos(4, 2),
-            Some(DFFPort::AsyncReset) => grid_pos(2, 0),
-            Some(DFFPort::SyncReset) => grid_pos(0, 2),
-            Some(DFFPort::Enable) => grid_pos(0, 4),
-            _ => panic!("Illegal connection id"),
+    fn get_dff_dock_cell_raw(port: PPort) -> GridPos {
+        match port {
+            PPort::D => grid_pos(0, 1),
+            PPort::Clk => grid_pos(0, 3),
+            PPort::Q => grid_pos(4, 2),
+            PPort::AsyncReset => grid_pos(2, 0),
+            PPort::SyncReset => grid_pos(0, 2),
+            PPort::Enable => grid_pos(0, 4),
+            _ => panic!("Unexpected port"),
         }
     }
 
@@ -1198,27 +1382,43 @@ impl PrimitiveType {
         result
     }
 
-    fn get_dff_connection_position_raw(params: &DFFParams, connection_id: Id) -> Pos2 {
-        match DFFPort::from_id(params, connection_id) {
-            Some(DFFPort::D) => pos2(0.5, 1.5),
-            Some(DFFPort::Clk) => pos2(0.5, 3.5),
-            Some(DFFPort::Q) => pos2(4.5, 2.5),
-            Some(DFFPort::AsyncReset) => pos2(2.5, 0.5),
-            Some(DFFPort::SyncReset) => pos2(0.5, 2.5),
-            Some(DFFPort::Enable) => pos2(0.5, 4.5),
-            _ => panic!("Illegal connection id"),
+    fn get_dff_connection_position_raw(port: PPort) -> Pos2 {
+        match port {
+            PPort::D => pos2(0.5, 1.5),
+            PPort::Clk => pos2(0.5, 3.5),
+            PPort::Q => pos2(4.5, 2.5),
+            PPort::AsyncReset => pos2(2.5, 0.5),
+            PPort::SyncReset => pos2(0.5, 2.5),
+            PPort::Enable => pos2(0.5, 4.5),
+            _ => panic!("Unexpected port"),
         }
     }
 
     fn get_dff_text_labels(params: &DFFParams) -> Vec<(Pos2, String, Rotation, Align2)> {
         let n_connections = Self::get_dff_connections_number(params);
-        let mut result: Vec<(Pos2, String, Rotation, Align2)> = Vec::with_capacity(n_connections - 1);
+        let mut result: Vec<(Pos2, String, Rotation, Align2)> =
+            Vec::with_capacity(n_connections - 1);
         result.extend([
-            (pos2(1.25, 1.25), "D".into(), Rotation::ROT0, Align2::LEFT_TOP),
-            (pos2(3.45, 2.25), "Q".into(), Rotation::ROT0, Align2::LEFT_TOP),
+            (
+                pos2(1.25, 1.25),
+                "D".into(),
+                Rotation::ROT0,
+                Align2::LEFT_TOP,
+            ),
+            (
+                pos2(3.45, 2.25),
+                "Q".into(),
+                Rotation::ROT0,
+                Align2::LEFT_TOP,
+            ),
         ]);
         if params.has_enable {
-            result.push((pos2(1.25, 4.25), "EN".into(), Rotation::ROT0, Align2::LEFT_TOP));
+            result.push((
+                pos2(1.25, 4.25),
+                "EN".into(),
+                Rotation::ROT0,
+                Align2::LEFT_TOP,
+            ));
         }
         if params.has_async_reset {
             result.push((
@@ -1230,14 +1430,15 @@ impl PrimitiveType {
                         ""
                     },
                 Rotation::ROT0,
-                Align2::LEFT_TOP
+                Align2::LEFT_TOP,
             ));
         }
         if params.has_sync_reset {
             result.push((
                 pos2(1.25, 2.25),
                 "RST".to_string() + if params.sync_reset_inverted { "_N" } else { "" },
-                Rotation::ROT0, Align2::LEFT_TOP
+                Rotation::ROT0,
+                Align2::LEFT_TOP,
             ));
         }
         result
@@ -1267,6 +1468,11 @@ impl PrimitiveType {
     //
     // *** Common ***
     //
+
+    fn get_port_type(&self, id: Id) -> Option<PPort> {
+        PPort::from_id(self, id)
+    }
+
     pub fn get_connections_number(&self) -> usize {
         match self {
             Self::And(n_inputs) => *n_inputs + 1,
@@ -1276,6 +1482,7 @@ impl PrimitiveType {
             Self::Not => 2,
             Self::Mux(n_inputs) => *n_inputs + 2,
             Self::Comparator(_) => Self::CMP_N_CONNECTIONS,
+            Self::Adder { cin, cout } => Self::get_adder_connections_number(*cin, *cout),
             Self::DFF(params) => Self::get_dff_connections_number(params),
             Self::Input => 1,
             Self::Output => 1,
@@ -1292,6 +1499,7 @@ impl PrimitiveType {
             Self::Not => (3, 3),
             Self::Mux(n_inputs) => Self::get_mux_dimension_raw(*n_inputs),
             Self::Comparator(_) => Self::CMP_DIMENSION,
+            Self::Adder { cin, cout } => Self::get_adder_dimension_raw(*cin, *cout),
             Self::DFF(_) => Self::DFF_DIMENSION,
             Self::Input => (2, 1),
             Self::Output => (2, 1),
@@ -1299,52 +1507,38 @@ impl PrimitiveType {
         }
     }
 
-    fn get_dock_cell_raw(&self, connection_id: Id, primitive_pos: &GridPos) -> GridPos {
+    fn get_dock_cell_raw(&self, connection_id: Id) -> GridPos {
+        let port = self.get_port_type(connection_id).unwrap(); // Check that port is exist
         match self {
-            Self::And(n_inputs) => {
-                Self::get_and_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
-            }
-            Self::Or(n_inputs) => {
-                Self::get_or_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
-            }
-            Self::Xor(n_inputs) => {
-                Self::get_xor_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
-            }
-            Self::Nand(n_inputs) => {
-                Self::get_nand_gate_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
-            }
-            Self::Not => Self::get_not_dock_cell_raw(connection_id, primitive_pos),
-            Self::Mux(n_inputs) => {
-                Self::get_mux_dock_cell_raw(connection_id, *n_inputs, primitive_pos)
-            }
-            Self::Comparator(_) => Self::get_cmp_dock_cell_raw(connection_id, primitive_pos),
-            Self::DFF(params) => Self::get_dff_dock_cell_raw(params, connection_id, primitive_pos),
-            Self::Input => Self::get_input_dock_cell_raw(primitive_pos),
-            Self::Output => Self::get_output_dock_cell_raw(primitive_pos),
-            Self::Point => *primitive_pos,
+            Self::And(n_inputs) => Self::get_and_gate_dock_cell_raw(port, *n_inputs),
+            Self::Or(n_inputs) => Self::get_or_gate_dock_cell_raw(port, *n_inputs),
+            Self::Xor(n_inputs) => Self::get_xor_gate_dock_cell_raw(port, *n_inputs),
+            Self::Nand(n_inputs) => Self::get_nand_gate_dock_cell_raw(port, *n_inputs),
+            Self::Not => Self::get_not_dock_cell_raw(port),
+            Self::Mux(n_inputs) => Self::get_mux_dock_cell_raw(port, *n_inputs),
+            Self::Comparator(_) => Self::get_cmp_dock_cell_raw(port),
+            Self::Adder { cin, cout: _ } => Self::get_adder_dock_cell_raw(port, *cin),
+            Self::DFF(_) => Self::get_dff_dock_cell_raw(port),
+            Self::Input => Self::get_input_dock_cell_raw(),
+            Self::Output => Self::get_output_dock_cell_raw(),
+            Self::Point => grid_pos(0, 0),
         }
     }
 
     fn get_connection_position_raw(&self, connection_id: Id) -> Pos2 {
+        let port = self.get_port_type(connection_id).unwrap(); // Check that port is exist
         match self {
-            Self::And(n_inputs) => {
-                Self::get_and_gate_connection_position_raw(connection_id, *n_inputs)
-            }
-            Self::Or(n_inputs) => {
-                Self::get_or_gate_connection_position_raw(connection_id, *n_inputs)
-            }
-            Self::Xor(n_inputs) => {
-                Self::get_xor_gate_connection_position_raw(connection_id, *n_inputs)
-            }
-            Self::Nand(n_inputs) => {
-                Self::get_nand_gate_connection_position_raw(connection_id, *n_inputs)
-            }
-            Self::Not => Self::get_not_connection_position_raw(connection_id),
-            Self::Mux(n_inputs) => Self::get_mux_connection_position_raw(connection_id, *n_inputs),
-            Self::Comparator(_) => Self::get_cmp_connection_position_raw(connection_id),
-            Self::DFF(params) => Self::get_dff_connection_position_raw(params, connection_id),
-            Self::Input => Self::get_input_connection_position_raw(connection_id),
-            Self::Output => Self::get_output_connection_position_raw(connection_id),
+            Self::And(n_inputs) => Self::get_and_gate_connection_position_raw(port, *n_inputs),
+            Self::Or(n_inputs) => Self::get_or_gate_connection_position_raw(port, *n_inputs),
+            Self::Xor(n_inputs) => Self::get_xor_gate_connection_position_raw(port, *n_inputs),
+            Self::Nand(n_inputs) => Self::get_nand_gate_connection_position_raw(port, *n_inputs),
+            Self::Not => Self::get_not_connection_position_raw(port),
+            Self::Mux(n_inputs) => Self::get_mux_connection_position_raw(port, *n_inputs),
+            Self::Comparator(_) => Self::get_cmp_connection_position_raw(port),
+            Self::Adder { cin, cout: _ } => Self::get_adder_connection_position_raw(port, *cin),
+            Self::DFF(_) => Self::get_dff_connection_position_raw(port),
+            Self::Input => Self::get_input_connection_position_raw(port),
+            Self::Output => Self::get_output_connection_position_raw(port),
             Self::Point => pos2(0.5, 0.5),
         }
     }
@@ -1363,6 +1557,7 @@ impl PrimitiveType {
             Self::Output => vec![Self::get_output_polygon_points_raw()],
             Self::Not => Self::get_not_polygons_points_raw(lod_level),
             Self::Comparator(_) => Self::get_cmp_polygons_points_raw(lod_level),
+            Self::Adder { cin, cout: _ } => Self::get_adder_polygons_points_raw(lod_level, *cin),
             Self::Mux(n_inputs) => vec![Self::get_mux_polygon_points_raw(*n_inputs)],
             Self::DFF(params) => Self::get_dff_polygons_points_raw(params, lod_level),
             Self::Point => vec![],
@@ -1378,6 +1573,7 @@ impl PrimitiveType {
             Self::Not => Self::get_not_lines_raw(),
             Self::DFF(params) => Self::get_dff_lines_raw(params),
             Self::Comparator(_) => Self::get_cmp_lines_raw(),
+            Self::Adder { cin, cout } => Self::get_adder_lines_raw(*cin, *cout),
             _ => vec![],
         }
     }
@@ -1386,6 +1582,7 @@ impl PrimitiveType {
         match self {
             Self::DFF(params) => Self::get_dff_text_labels(params),
             Self::Comparator(typ) => Self::get_cmp_text_labels(typ),
+            Self::Adder { cin, cout } => Self::get_adder_text_labels(*cin, *cout),
             _ => vec![],
         }
     }
@@ -1398,6 +1595,7 @@ impl PrimitiveType {
             | Self::Nand(_)
             | Self::Mux(_)
             | Self::DFF(_)
+            | Self::Adder { cin: _, cout: _ }
             | Self::Comparator(_) => true,
             Self::Not | Self::Input | Self::Output | Self::Point => false,
         }
@@ -1405,57 +1603,30 @@ impl PrimitiveType {
 
     /// Returns a list of connection permutations.
     pub fn get_connections_diff(&self, other: &Self) -> HashMap<Id, Option<Id>> {
-        match self {
-            Self::And(_)
-            | Self::Or(_)
-            | Self::Xor(_)
-            | Self::Nand(_)
-            | Self::Mux(_) => {
-                let mut result = HashMap::new();
-                let n0 = self.get_connections_number();
-                let n1 = other.get_connections_number();
-                if n1 < n0 {
-                    for i in n1..n0 {
-                        // Connection point has been removed
-                        result.insert(i, None);
-                    }
-                }
-                return result;
-            }
-            Self::DFF(self_params) => match other {
-                Self::DFF(other_params) => {
-                    let mut self_port_map = HashMap::new();
-                    let self_n_ports = Self::get_dff_connections_number(self_params);
-                    for id in 0..self_n_ports {
-                        self_port_map.insert(DFFPort::from_id(self_params, id).unwrap(), id);
-                    }
-                    let mut other_port_map = HashMap::new();
-                    let other_n_ports = Self::get_dff_connections_number(other_params);
-                    for id in 0..other_n_ports {
-                        other_port_map.insert(DFFPort::from_id(other_params, id).unwrap(), id);
-                    }
-                    let mut result = HashMap::new();
-                    for (port, id) in &self_port_map {
-                        let other_id = other_port_map.get(port).cloned();
-                        if other_id != Some(*id) {
-                            result.insert(*id, other_id);
-                        }
-                    }
-                    return result;
-                }
-                _ => {
-                    panic!("Illegal type")
-                }
-            },
-            | Self::Not
-            | Self::Input
-            | Self::Output
-            | Self::Point
-            | Self::Comparator(_) => HashMap::new()
+        let mut self_port_map = HashMap::new();
+        let self_n_ports = self.get_connections_number();
+        for id in 0..self_n_ports {
+            self_port_map.insert(PPort::from_id(self, id).unwrap(), id);
         }
+
+        let mut other_port_map = HashMap::new();
+        let other_n_ports = other.get_connections_number();
+        for id in 0..other_n_ports {
+            other_port_map.insert(PPort::from_id(other, id).unwrap(), id);
+        }
+
+        let mut result = HashMap::new();
+        for (port, id) in &self_port_map {
+            let other_id = other_port_map.get(port).cloned();
+            if other_id != Some(*id) {
+                result.insert(*id, other_id);
+            }
+        }
+        return result;
     }
 
     pub fn show_customization_panel(&mut self, ui: &mut egui::Ui, locale: &'static Locale) {
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         match self {
             Self::And(n_inputs)
             | Self::Or(n_inputs)
@@ -1504,6 +1675,10 @@ impl PrimitiveType {
                     );
                 }
                 ui.checkbox(&mut params.has_enable, locale.enable_signal);
+            }
+            Self::Adder { cin, cout } => {
+                ui.checkbox(cin, "cin");
+                ui.checkbox(cout, "cout");
             }
             Self::Comparator(curr_typ) => {
                 ui.horizontal(|ui| {
