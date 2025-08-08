@@ -1,16 +1,14 @@
-use std::collections::LinkedList;
+use std::{collections::LinkedList};
 
 use crate::{
-    field::{FieldState, blocked_cell, filled_cells},
+    field::{blocked_cell, filled_cells, FieldState},
     grid_db::{
-        Component, ComponentAction, ComponentColor, GridDB, GridDBConnectionPoint, GridPos, Id,
-        Net, Port, RotationDirection, grid_pos, show_text_edit,
+        grid_pos, show_text_edit, Component, ComponentAction, ComponentColor, GridDB, GridDBConnectionPoint, GridPos, Id, Net, NetAction, Port, PrimitiveComponent, RotationDirection
     },
     locale::Locale,
 };
 use egui::{
-    Align2, Color32, CursorIcon, FontId, KeyboardShortcut, Modifiers, Painter, Pos2, Rect,
-    Response, Shape, Stroke, StrokeKind, Ui, Vec2, epaint::TextShape, vec2,
+    epaint::TextShape, vec2, Align2, Color32, CursorIcon, FontId, KeyboardShortcut, Modifiers, Painter, Pos2, Rect, Response, Shape, Stroke, StrokeKind, Ui, Vec2
 };
 
 pub fn draw_component_drag_preview(
@@ -71,6 +69,7 @@ enum InteractionState {
         id: Id,
         buffer: Component,
     },
+    NetSelected{net_id: Id, segment_id: Id, pos: GridPos},
 }
 
 pub struct InteractionManager {
@@ -82,6 +81,9 @@ pub struct InteractionManager {
 }
 
 impl InteractionManager {
+    const UNDO_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::CTRL, egui::Key::Z);
+    const REDO_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::CTRL, egui::Key::Y);
+
     pub fn new() -> Self {
         Self {
             state: InteractionState::Idle,
@@ -90,6 +92,17 @@ impl InteractionManager {
             reverted_transactions: LinkedList::new(),
             connection_builder: ConnectionBuilder::new(),
         }
+    }
+
+    fn reset_state(&mut self) {
+        self.state = InteractionState::Idle;
+        self.connection_builder.state = ConnectionBuilderState::IDLE;
+    }
+
+    pub fn reset(&mut self) {
+        self.reset_state();
+        self.applied_transactions.clear();
+        self.reverted_transactions.clear();
     }
 
     pub fn add_new_component(&mut self, component: Component, db: &mut GridDB) {
@@ -450,8 +463,22 @@ impl InteractionManager {
         self.apply_new_transaction(Transaction::CombinedTransaction(transactions), db);
     }
 
-    const UNDO_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::CTRL, egui::Key::Z);
-    const REDO_SHORTCUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::CTRL, egui::Key::Y);
+    fn insert_point(&mut self, db: &mut GridDB, net_id: Id, segment_id : Id, pos : GridPos) {
+        let point_id = db.allocate_component();
+        let new_net_id = db.allocate_net();
+        let net = db.get_net(&net_id).unwrap();
+        let mut points0 = net.points[0..=segment_id].to_vec();
+        let mut points1 = net.points[segment_id+1..net.points.len()].to_vec();
+        points0.push(pos);
+        points1.insert(0, pos);
+        let net0 = Net {start_point: net.start_point, end_point: GridDBConnectionPoint { component_id: point_id, connection_id: 0 }, points: points0};
+        let net1 = Net {start_point: GridDBConnectionPoint { component_id: point_id, connection_id: 0 }, end_point: net.end_point, points: points1};
+        let mut transactions = LinkedList::new();
+        transactions.push_back(Transaction::ChangeComponent { comp_id: point_id, old_comp: None, new_comp: Some(Component::Primitive(PrimitiveComponent {pos, typ: crate::grid_db::PrimitiveType::Point, rotation: crate::grid_db::Rotation::ROT0})) });
+        transactions.push_back(Transaction::ChangeNet { net_id: net_id, old_net: None, new_net: Some(net0) });
+        transactions.push_back(Transaction::ChangeNet { net_id: new_net_id, old_net: None, new_net: Some(net1) });
+        self.apply_new_transaction(Transaction::CombinedTransaction(transactions), db);
+    }
 
     fn remove_port(&mut self, db: &mut GridDB, comp_id: Id, port_id: Id) {
         let mut transactions = LinkedList::new();
@@ -504,11 +531,12 @@ impl InteractionManager {
             let net = db.get_net(&net_id).unwrap();
             let mut new_net = net.clone();
             let mut remove_net = false;
-
+            let mut changed = false;
             if net.start_point.component_id == comp_id {
                 if let Some(new_id) = connections_diff.get(&net.start_point.connection_id) {
                     if let Some(new_id) = new_id {
                         new_net.start_point.connection_id = *new_id;
+                        changed = true;
                     } else {
                         remove_net = true;
                     }
@@ -518,6 +546,7 @@ impl InteractionManager {
                 if let Some(new_id) = connections_diff.get(&net.end_point.connection_id) {
                     if let Some(new_id) = new_id {
                         new_net.end_point.connection_id = *new_id;
+                        changed = true;
                     } else {
                         remove_net = true;
                     }
@@ -525,7 +554,7 @@ impl InteractionManager {
             }
             let transaction = if !remove_net {
                 // Rebuild net:
-                Self::get_net_connection_move_transaction(
+                let transaction = Self::get_net_connection_move_transaction(
                     *net_id,
                     db,
                     if net.start_point.component_id == comp_id {
@@ -549,8 +578,29 @@ impl InteractionManager {
                         (p1.x - p0.x, p1.y - p0.y)
                     } else {
                         (0, 0)
+                    }
+                );
+
+                match transaction {
+                    Some(Transaction::ChangeNet { net_id, old_net, new_net: moved_net }) => {
+                        let mut moved_net = moved_net.unwrap();
+                        moved_net.start_point = new_net.start_point;
+                        moved_net.end_point = new_net.end_point;
+                        Some(Transaction::ChangeNet { net_id, old_net, new_net: Some(moved_net) })
                     },
-                )
+                    None => {
+                        if changed {
+                            Some(Transaction::ChangeNet {
+                                net_id: *net_id,
+                                old_net: None,
+                                new_net: Some(new_net),
+                            })
+                        } else {
+                            None
+                        }
+                    },
+                    _ => panic!()
+                }
             } else {
                 // Remove net:
                 Some(Transaction::ChangeNet {
@@ -582,6 +632,11 @@ impl InteractionManager {
         ui: &egui::Ui,
         locale: &'static Locale,
     ) -> bool {
+
+        if ui.input(|state| {state.key_down(egui::Key::Escape)}) {
+            self.reset_state();
+        }
+
         match self.state {
             InteractionState::EditingText {
                 id: _,
@@ -668,7 +723,12 @@ impl InteractionManager {
                         ui.ctx()
                             .output_mut(|o| o.cursor_icon = CursorIcon::ResizeHorizontal);
                     }
-                    if response.is_pointer_button_down_on() {
+                    if response.clicked_by(egui::PointerButton::Secondary) {
+                        self.state = InteractionState::NetSelected {
+                            net_id: segment.net_id, segment_id: segment.inner_id, pos: state.screen_to_grid(state.cursor_pos.unwrap())
+                        };
+                        return true;
+                    } else if ui.input(|state| {state.pointer.button_pressed(egui::PointerButton::Primary)}) {
                         // Do no use dragged() or drag_started()
                         self.drag_delta += response.drag_delta();
                         self.state = InteractionState::NetDragged {
@@ -934,6 +994,27 @@ impl InteractionManager {
                     }
                 }
             }
+            InteractionState::NetSelected { net_id, segment_id, pos } => {
+                if ui.input(|i| i.key_pressed(egui::Key::Delete)) {
+                    self.apply_new_transaction(Transaction::ChangeNet { net_id: *net_id, old_net: None, new_net: None}, db);
+                    self.state = InteractionState::Idle;
+                    return true;
+                } else if response.clicked() {
+                    if let Some(action) = Self::get_net_action(pos, state) {
+                        match action {
+                            NetAction::InsertPoint => {
+                                self.insert_point(db, *net_id, *segment_id, *pos);
+                            },// TODO
+                            NetAction::RemoveNet => {
+                                self.apply_new_transaction(Transaction::ChangeNet { net_id: *net_id, old_net: None, new_net: None}, db);
+                            }
+                        }
+                    }
+
+                    self.state = InteractionState::Idle;
+                    return true;
+                }
+            }
         }
         false
     }
@@ -1163,10 +1244,61 @@ impl InteractionManager {
                 }
             }
             InteractionState::CreatingNet => {
+                ui.ctx().output_mut(|o| o.cursor_icon = CursorIcon::Crosshair);
                 self.connection_builder.draw(db, state, painter);
+            }
+            InteractionState::NetSelected { net_id, segment_id: _, pos } => {
+                let segments = db.get_net(net_id).unwrap().get_segments(*net_id);
+                for seg in segments {
+                    seg.highlight(state, painter);
+                }
+                Self::draw_net_action_panel(painter, pos, state);
             }
             _ => {}
         }
+    }
+
+    fn draw_net_action_panel(painter: &Painter, pos: &GridPos, state: &FieldState) {
+        let size = 50.0;
+        let pos = state.grid_to_screen(pos);
+        let n_actions = NetAction::ACTIONS.len();
+        let rect = Rect::from_center_size(pos, vec2(size * n_actions as f32, 50.0));
+        let r = size * 0.1;
+        let visuals = &painter.ctx().style().visuals;
+        painter.add(visuals.popup_shadow.as_shape(rect, r));
+        painter.rect(
+            rect,
+            r,
+            visuals.panel_fill,
+            visuals.window_stroke(),
+            StrokeKind::Outside,
+        );
+
+        NetAction::ACTIONS.iter().enumerate().for_each(|(i, action)| {
+            let rect = Rect::from_min_size(rect.min + vec2(size * i as f32, 0.0), vec2(size, size));
+            let selected = if let Some(pos) = state.cursor_pos {
+                rect.contains(pos)
+            } else {
+                false
+            };
+            action.draw(painter, rect, selected);
+        });
+    }
+
+    fn get_net_action(pos: &GridPos, state: &FieldState) -> Option<NetAction> {
+        let pos = state.grid_to_screen(pos);
+        let size = 50.0;
+        let n_actions = NetAction::ACTIONS.len();
+        let rect = Rect::from_center_size(pos, vec2(size * n_actions as f32, 50.0));
+        for (i, action) in NetAction::ACTIONS.iter().enumerate() {
+            let rect = Rect::from_min_size(rect.min + vec2(size * i as f32, 0.0), vec2(size, size));
+            if let Some(pos) = state.cursor_pos {
+                if rect.contains(pos) {
+                    return Some(*action);
+                }
+            }
+        }
+        return None;
     }
 
     fn get_action(comp: &Component, state: &FieldState) -> ComponentAction {

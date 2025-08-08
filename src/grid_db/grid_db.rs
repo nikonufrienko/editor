@@ -10,9 +10,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     field::FieldState,
     grid_db::{
-        Component, ComponentColor, GridPos, Net, NetSegment, STROKE_SCALE, SvgColor, grid_pos,
+        grid_pos, Component, ComponentColor, GridPos, Net, NetSegment, SvgColor, STROKE_SCALE
     },
-}; // AABB = Axis-Aligned Bounding Box (прямоугольник)
+};
+
 type Point = [i32; 2]; // Точка (x, y)
 
 pub type Id = usize;

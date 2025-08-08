@@ -136,7 +136,7 @@ pub struct Field {
     pub grid_type: GridType,
     pub grid_db: GridDB,
     external_drag_resp: DragComponentResponse,
-    interaction_manager: InteractionManager,
+    pub interaction_manager: InteractionManager,
     debounce_inst: Instant,
 }
 

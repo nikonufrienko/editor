@@ -57,6 +57,6 @@ Key features:
 ## TODO List:
 
 * [ ] Improve Net construction. Implement smart construction patterns.
-* [ ] Add functionality to split Net into two parts with a new Point.
+* [x] Add functionality to split Net into two parts with a new Point.
 * [ ] Add more components.
 * [ ] Add a "Fit to view" button to focus on all placed components.

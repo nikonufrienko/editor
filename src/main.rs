@@ -179,6 +179,7 @@ impl eframe::App for EditorApp {
                     ui.menu_button(locale.file, |ui| {
                         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                         if ui.button(locale.open).clicked() {
+                            self.field.interaction_manager.reset(); // TODO: refactor it
                             self.file_manager.open_file(locale);
                             ui.close();
                         }
