@@ -34,6 +34,7 @@ jobs:
     - name: Build for riscv64gc-unknown-linux-gnu
       run: |
         env CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER=riscv64-linux-gnu-gcc cargo build --release --target riscv64gc-unknown-linux-gnu
+        mkdir result
         mv target/riscv64gc-unknown-linux-gnu/release/editor result/editor-riscv64gc-unknown-linux-gnu
 
     - name: Prepare for unifont AppImage build
@@ -61,7 +62,6 @@ jobs:
 
     - name: Build for x86_64-pc-windows-gnu (unifont)
       run: |
-        mkdir result
         cargo build -r --target x86_64-pc-windows-gnu --features unifont --verbose
         mv target/x86_64-pc-windows-gnu/release/editor.exe result/editor-x86_64-unifont.exe
 
