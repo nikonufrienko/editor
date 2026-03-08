@@ -107,6 +107,7 @@ jobs:
         files: |
           result/editor-x86_64.exe
           result/editor-x86_64-unifont.exe
+          result/editor-riscv64gc-unknown-linux-gnu
           editor-x86_64.AppImage
           editor-x86_64-unifont.AppImage
         tag_name: commit-${{ env.COMMIT_HASH }}
