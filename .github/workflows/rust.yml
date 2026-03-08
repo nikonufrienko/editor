@@ -17,16 +17,24 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y upx-ucl binutils
+        sudo apt-get install -y upx-ucl binutils gcc-14-riscv64-linux-gnu-base
 
     - name: Install x86_64-pc-windows-gnu target
       run: rustup target add x86_64-pc-windows-gnu
+
+    - name: Install riscv64gc-unknown-linux-gnu target
+      run: rustup target add riscv64gc-unknown-linux-gnu
 
     - name: Install MinGW-w64
       run: sudo apt-get install -y mingw-w64
 
     - name: Build for x86_64-unknown-linux-gnu (unifont)
       run: cargo build -r --target x86_64-unknown-linux-gnu --features unifont --verbose
+
+    - name: Build for riscv64gc-unknown-linux-gnu
+      run: |
+        env CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER=riscv64-linux-gnu-gcc cargo build --release --target riscv64gc-unknown-linux-gnu
+        mv target/riscv64gc-unknown-linux-gnu/release/editor result/editor-riscv64gc-unknown-linux-gnu
 
     - name: Prepare for unifont AppImage build
       run: |
@@ -75,6 +83,7 @@ jobs:
       with:
         name: linux-appimages
         path: |
+          result/editor-riscv64gc-unknown-linux-gnu
           editor-x86_64.AppImage
           editor-x86_64-unifont.AppImage
 

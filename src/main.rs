@@ -32,7 +32,7 @@ fn main() {
         .expect("The icon data must be valid");
 
     let options = eframe::NativeOptions {
-        multisampling: 8,
+        multisampling: 4,
         dithering: false,
 
         viewport: egui::ViewportBuilder::default()
